@@ -1,0 +1,30 @@
+[
+  {
+    "orth": "fuit",
+    "pos": "V",
+    "form": "PERF ACTIVE IND 3 S",
+    "senses": [
+      "to be, exist",
+      "also used to form verb perfect passive tenses with NOM PERF PPL"
+    ]
+  },
+  {
+    "orth": "laetus",
+    "pos": "ADJ",
+    "form": "NOM S M",
+    "parts": ["laetus"],
+    "senses": [
+      "happy, glad, joyful",
+      "prosperous, favorable"
+    ]
+  },
+  {
+    "orth": "Troiae",
+    "pos": "N",
+    "form": "GEN S C",
+    "parts": ["Troia", "Troiae"],
+    "senses": [
+      "Troy"
+    ]
+  }
+]
