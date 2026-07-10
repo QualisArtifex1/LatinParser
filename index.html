@@ -3,11 +3,101 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Latin Vocab App</title>
-    <script type="module" crossorigin src="./assets/index-B4NgUzNs.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-C3CMYIeg.css">
+    <meta name="description" content="Look up Latin words, meanings, and grammatical forms in context." />
+    <title>Latin Dictionary · Qualis Artifex</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <main class="site-shell">
+      <header class="topbar">
+        <a class="brand" href="https://qualisartifex1.github.io/QualisArtifex/" aria-label="Back to Qualis Artifex">
+          <span class="brand-mark" aria-hidden="true">QA</span>
+          <span>
+            <strong>Latin Dictionary</strong>
+            <small>Qualis Artifex · classical resources</small>
+          </span>
+        </a>
+        <div class="header-actions">
+          <span class="ready-status"><i></i> Open Words ready</span>
+          <button class="study-trigger" id="open-study-list" type="button">
+            Study list <b id="saved-count">0</b>
+          </button>
+        </div>
+      </header>
+
+      <a class="back-link" href="https://qualisartifex1.github.io/QualisArtifex/">
+        <span aria-hidden="true">←</span> Back to the library
+      </a>
+
+      <section class="lookup-card" aria-labelledby="lookup-title">
+        <div class="lookup-heading">
+          <div>
+            <span class="eyebrow">Latin lookup</span>
+            <h1 id="lookup-title">Latin passage</h1>
+            <p>Paste a passage, then select any word for its meaning and grammar.</p>
+          </div>
+          <span class="shortcut">⌘ / Ctrl + Enter</span>
+        </div>
+
+        <form id="lookup-form">
+          <label class="sr-only" for="latin-passage">Latin passage</label>
+          <textarea id="latin-passage" placeholder="Enter a Latin word, phrase, or passage…" spellcheck="false"></textarea>
+          <div class="form-footer">
+            <button class="example-button" id="sample-button" type="button">Try an example</button>
+            <button class="analyze-button" id="analyze-button" type="submit" disabled>
+              <span class="analyze-label">Analyze passage</span> <span aria-hidden="true">→</span>
+            </button>
+          </div>
+          <p class="lookup-error" id="lookup-error" role="alert" hidden></p>
+        </form>
+      </section>
+
+      <section class="welcome-card" id="welcome-card" aria-label="Getting started">
+        <span class="welcome-number">I</span>
+        <div>
+          <span class="eyebrow">Getting started</span>
+          <h2>Your passage becomes the navigation.</h2>
+          <p>Analyze Latin above. Every word will become selectable, so its definition and grammatical form stay in context.</p>
+        </div>
+        <button id="welcome-sample-button" type="button">Explore Caesar’s opening line</button>
+      </section>
+
+      <section class="results-area" id="results-area" aria-live="polite" hidden>
+        <div class="passage-reader">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">Analyzed passage</span>
+              <h2>Select a word</h2>
+            </div>
+            <span id="word-count"></span>
+          </div>
+          <div class="token-ribbon" id="token-ribbon" role="toolbar" aria-label="Words in analyzed passage"></div>
+        </div>
+        <div class="definition-list" id="definition-list"></div>
+      </section>
+
+      <footer>
+        <span>Qualis Artifex</span>
+        <p>Definitions and morphology powered by Open Words.</p>
+      </footer>
+
+      <div class="drawer-backdrop" id="drawer-backdrop"></div>
+      <aside class="study-drawer" id="study-drawer" aria-hidden="true" aria-label="Study list">
+        <div class="drawer-heading">
+          <div>
+            <span class="eyebrow">Review</span>
+            <h2>Study list</h2>
+          </div>
+          <button id="close-study-list" type="button" aria-label="Close study list">×</button>
+        </div>
+        <p class="drawer-intro">Saved entries stay on this device and are ready to export.</p>
+        <div class="export-actions">
+          <button id="copy-list" type="button" disabled>Copy list</button>
+          <button id="download-list" type="button" disabled>Download .tsv</button>
+        </div>
+        <div class="saved-list" id="saved-list"></div>
+      </aside>
+    </main>
   </body>
 </html>
