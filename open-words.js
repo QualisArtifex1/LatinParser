@@ -52,6 +52,39 @@ function sameInflectionFamily(stem, inflection) {
   const variantMatches = stemVariant == null || endingVariant == null || stemVariant === endingVariant || stemVariant === 0 || endingVariant === 0;
   return classMatches && variantMatches;
 }
+function stemPositions(word, stem) {
+  if (!word.parts) return [];
+  const stemText = normalize(stem.orth);
+  return word.parts.reduce((positions, part, index) => {
+    if (normalize(part) === stemText) positions.push(index);
+    return positions;
+  }, []);
+}
+function isPerfectSystem(form) {
+  return form.startsWith("PERF") || form.startsWith("PLUP") || form.startsWith("FUTP");
+}
+function isDeponent(word) {
+  return word.form.trim().split(/\s+/)[2] === "DEP";
+}
+function specialVerbStemMatches(word, stem, inflection, positions) {
+  const isEoFamily = word.n?.[0] === 6 && word.n?.[1] === 1;
+  const isSpecialPresent = inflection.note === "eo_ire" && positions.includes(0) && normalize(stem.orth) === "e" && inflection.form.startsWith("PRES  ACTIVE  IND");
+  if (!isEoFamily || !isSpecialPresent) return true;
+  return ["PRES  ACTIVE  IND  1 S", "PRES  ACTIVE  IND  3 P"].includes(inflection.form);
+}
+function verbStemMatches(word, stem, inflection) {
+  if (stem.pos !== "V" || !word.parts) return true;
+  const positions = stemPositions(word, stem);
+  if (inflection.pos === "VPAR") return positions.includes(3);
+  if (inflection.pos !== "V") return true;
+  if (isDeponent(word) && inflection.form.includes("ACTIVE")) return false;
+  if (!specialVerbStemMatches(word, stem, inflection, positions)) return false;
+  if (isPerfectSystem(inflection.form)) return positions.includes(2);
+  if (positions.includes(3)) return false;
+  const genericVariant = inflection.n?.[1] === 0;
+  if (genericVariant) return positions.includes(0);
+  return positions.includes(0) || positions.includes(1);
+}
 function genderMatches(word, inflection) {
   if (word.pos !== "N" || inflection.pos !== "N") return true;
   const wordGender = word.form.trim().split(/\s+/)[2];
@@ -169,7 +202,7 @@ class OpenWordsEngine {
       for (const stem of possibleStems) {
         if (!sameInflectionFamily(stem, inflection)) continue;
         const word = this.wordsById.get(stem.wid);
-        if (!word || !genderMatches(word, inflection)) continue;
+        if (!word || !genderMatches(word, inflection) || !verbStemMatches(word, stem, inflection)) continue;
         const current = candidates.get(stem.wid) ?? { word, forms: /* @__PURE__ */ new Set(), score: 0 };
         current.forms.add(formatForm(inflection.form, inflection.pos));
         const exactVariant = stem.n?.[1] === inflection.n?.[1] && inflection.n?.[1] !== 0;
