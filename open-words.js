@@ -66,6 +66,18 @@ function isPerfectSystem(form) {
 function isDeponent(word) {
   return word.form.trim().split(/\s+/)[2] === "DEP";
 }
+function isSemiDeponent(word) {
+  return word.form.trim().split(/\s+/)[2] === "SEMIDEP";
+}
+function isImpersonal(word) {
+  return word.form.trim().split(/\s+/)[2] === "IMPERS";
+}
+function isFiniteForm(form) {
+  return /\s(?:IND|SUB|IMP)\s/.test(form);
+}
+function isPresentStemParticiple(form) {
+  return form.includes("PRES ACTIVE") || form.includes("FUT  PASSIVE");
+}
 function specialVerbStemMatches(word, stem, inflection, positions) {
   const isEoFamily = word.n?.[0] === 6 && word.n?.[1] === 1;
   const isSpecialPresent = inflection.note === "eo_ire" && positions.includes(0) && normalize(stem.orth) === "e" && inflection.form.startsWith("PRES  ACTIVE  IND");
@@ -75,9 +87,19 @@ function specialVerbStemMatches(word, stem, inflection, positions) {
 function verbStemMatches(word, stem, inflection) {
   if (stem.pos !== "V" || !word.parts) return true;
   const positions = stemPositions(word, stem);
-  if (inflection.pos === "VPAR") return positions.includes(3);
+  if (inflection.pos === "VPAR") {
+    return isPresentStemParticiple(inflection.form) ? positions.includes(0) : positions.includes(3);
+  }
   if (inflection.pos !== "V") return true;
   if (isDeponent(word) && inflection.form.includes("ACTIVE")) return false;
+  if (isSemiDeponent(word)) {
+    if (!isPerfectSystem(inflection.form) && inflection.form.includes("PASSIVE")) return false;
+    // Completed-action forms are periphrastic (for example, ausus sum), not
+    // perfect-stem forms with ordinary active endings. Defective exceptions
+    // such as ausim have their own dictionary record and inflection family.
+    if (isPerfectSystem(inflection.form)) return false;
+  }
+  if (isImpersonal(word) && isFiniteForm(inflection.form) && !/\s3 S$/.test(inflection.form)) return false;
   if (!specialVerbStemMatches(word, stem, inflection, positions)) return false;
   if (isPerfectSystem(inflection.form)) return positions.includes(2);
   if (positions.includes(3)) return false;
@@ -106,8 +128,25 @@ function genderName(word) {
   const gender = word.form.trim().split(/\s+/)[2];
   return { M: "masculine", F: "feminine", N: "neuter", C: "common gender" }[gender] ?? "";
 }
-function formatLemma(word) {
-  const parts = (word.parts?.filter(Boolean) ?? [word.orth]).map((part) => part.trim());
+function sameNumberPair(left, right) {
+  return left?.length === right?.length && left.every((value, index) => value === right[index]);
+}
+function inflectionEnding(inflections, word, pos, form) {
+  const target = form.replace(/\s+/g, " ").trim();
+  return inflections.filter((inflection) => {
+    const genericParticiple = pos === "VPAR" && sameNumberPair(inflection.n, [0, 0]);
+    return inflection.pos === pos &&
+      (sameNumberPair(inflection.n, word.n) || genericParticiple) &&
+      inflection.form.replace(/\s+/g, " ").trim() === target;
+  }).sort((left, right) => left.ending.length - right.ending.length)[0]?.ending;
+}
+function appendEnding(stem, ending, fallback) {
+  if (!stem) return "";
+  return `${stem}${ending ?? fallback}`;
+}
+function formatLemma(word, inflections) {
+  const rawParts = (word.parts ?? [word.orth]).map((part) => part.trim());
+  const parts = rawParts.filter(Boolean);
   if (word.id == null && parts.length > 1) return parts.join(", ");
   const declension = Number(word.n?.[0] ?? 0);
   if (word.pos === "N") {
@@ -123,34 +162,66 @@ function formatLemma(word) {
     if (declension === 5) return `${first}es, ${second}ei`;
   }
   if (word.pos === "V") {
-    const [present = word.orth, infinitive = present, perfect = "", participle = ""] = parts;
-    const presentEnding = declension === 2 ? "eo" : "o";
-    const infinitiveEnding = declension === 1 ? "are" : declension === 2 ? "ere" : declension === 4 ? "ire" : "ere";
+    const [present = word.orth, infinitive = present, perfect = "", participle = ""] = rawParts;
+    const flag = word.form.trim().split(/\s+/)[2] ?? "";
+    const deponent = flag === "DEP";
+    const semiDeponent = flag === "SEMIDEP";
+    const impersonal = flag === "IMPERS";
+    const presentForm = impersonal ? "PRES ACTIVE IND 3 S" : deponent ? "PRES PASSIVE IND 1 S" : "PRES ACTIVE IND 1 S";
+    const infinitiveForm = deponent ? "PRES PASSIVE INF 0 X" : "PRES ACTIVE INF 0 X";
+    const defectiveConjugation = word.n?.[0] === 8 ? word.n?.[1] : 0;
+    const presentFallback = impersonal ? "t" : deponent ? "or" : defectiveConjugation === 2 ? "eo" : "o";
+    const infinitiveFallback = deponent ? "i" : defectiveConjugation === 1 ? "are" : "ere";
+    const presentPart = appendEnding(present, inflectionEnding(inflections, word, "V", presentForm), presentFallback);
+    const infinitivePart = appendEnding(infinitive, inflectionEnding(inflections, word, "V", infinitiveForm), infinitiveFallback);
+    const perfectPart = appendEnding(perfect, inflectionEnding(inflections, word, "V", "PERF ACTIVE IND 1 S"), "i");
+    const participleStem = participle || (semiDeponent ? perfect : "");
+    const participlePart = appendEnding(participleStem, inflectionEnding(inflections, word, "VPAR", "NOM S M PERF PASSIVE PPL"), "us");
+    if (deponent || semiDeponent) {
+      return [presentPart, infinitivePart, participlePart ? `${participlePart} sum` : ""].filter(Boolean).join(", ");
+    }
+    if (impersonal) {
+      return [presentPart, infinitivePart, perfectPart, participlePart ? `${participlePart} est` : ""].filter(Boolean).join(", ");
+    }
     return [
-      `${present}${presentEnding}`,
-      `${infinitive}${infinitiveEnding}`,
-      perfect ? `${perfect}i` : "",
-      participle ? `${participle}us` : ""
+      presentPart,
+      infinitivePart,
+      perfectPart,
+      participlePart
     ].filter(Boolean).join(", ");
   }
   if (word.pos === "ADJ" && declension === 1) {
     const first = parts[0] ?? word.orth;
     return `${first}us, ${first}a, ${first}um`;
   }
+  if (word.pos === "ADJ" && declension === 3) {
+    const [nominative = word.orth, oblique = "", comparative = "", superlative = ""] = rawParts;
+    const positive = word.n?.[1] === 2 ? `${nominative}is, ${oblique || nominative}e` : nominative;
+    return [
+      positive,
+      word.n?.[1] === 1 && oblique ? `${oblique}is` : "",
+      comparative ? `${comparative}or` : "",
+      superlative ? `${superlative}mus` : ""
+    ].filter(Boolean).join(", ");
+  }
   return parts.join(", ") || word.orth;
 }
-function toEntry(word, forms, suffixNote) {
+function toEntry(word, forms, suffixNote, inflections) {
   const gender = genderName(word);
-  const part = [PARTS[word.pos] ?? word.pos.toLocaleLowerCase(), gender].filter(Boolean).join(" \xB7 ");
+  const participleOnly = forms.length > 0 && forms.every((form) => form.includes("participle"));
+  const entryPart = participleOnly ? "VPAR" : word.pos;
+  const part = [PARTS[entryPart] ?? entryPart.toLocaleLowerCase(), gender].filter(Boolean).join(" \xB7 ");
+  const deponent = isDeponent(word);
+  const displayedForms = deponent ? forms.map((form) => form.replace("passive \xB7 ", "")) : forms;
   const senses = word.senses.map((sense) => sense.replace(/^\|/, "").trim()).filter(Boolean);
   const extra = senses.slice(1, 4).join("; ");
   return {
     id: `${word.id ?? word.orth}-${word.pos}-${word.form}`,
-    lemma: formatLemma(word),
+    lemma: formatLemma(word, inflections),
     part,
     meaning: senses[0] ?? "Definition unavailable",
     note: [extra, suffixNote].filter(Boolean).join(" \xB7 ") || void 0,
-    forms: forms.slice(0, 8)
+    forms: displayedForms.slice(0, 8)
   };
 }
 class OpenWordsEngine {
@@ -179,7 +250,9 @@ class OpenWordsEngine {
     const token = normalize(rawToken);
     if (!token) return [];
     const exact = this.exactByOrth.get(token);
-    if (exact?.length) return exact.map((word) => toEntry(word, [formatForm(word.form, word.pos)]));
+    const exactEntries = (exact ?? []).map((word) =>
+      toEntry(word, [formatForm(word.form, word.pos)], "", this.inflections)
+    );
     let lookupToken = token;
     let suffixNote = "";
     for (const addon of this.addons.tackons ?? []) {
@@ -216,8 +289,11 @@ class OpenWordsEngine {
       }
     }
     const deduped = /* @__PURE__ */ new Map();
+    for (const entry of exactEntries) {
+      deduped.set(`${entry.lemma}|${entry.meaning}`, { ...entry, score: Number.POSITIVE_INFINITY });
+    }
     for (const candidate of candidates.values()) {
-      const entry = toEntry(candidate.word, [...candidate.forms], suffixNote);
+      const entry = toEntry(candidate.word, [...candidate.forms], suffixNote, this.inflections);
       const key = `${entry.lemma}|${entry.meaning}`;
       const existing = deduped.get(key);
       if (existing) {

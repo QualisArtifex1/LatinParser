@@ -1,0 +1,82 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import { test } from "node:test";
+import { pathToFileURL } from "node:url";
+
+globalThis.fetch = async (url) => {
+  const path = String(url).replace("./open-words/", "open-words/");
+  try {
+    return { ok: true, json: async () => JSON.parse(await fs.readFile(path, "utf8")) };
+  } catch {
+    return { ok: false };
+  }
+};
+
+const { lookupLatinWord } = await import(pathToFileURL(`${process.cwd()}/open-words.js`));
+const lookup = (word) => lookupLatinWord(word);
+const hasMeaning = (entries, text) => entries.some((entry) => entry.meaning.includes(text));
+
+test("venit keeps only its genuine unmacronized ambiguities", async () => {
+  const entries = await lookup("venit");
+  assert.deepEqual(entries.map((entry) => entry.lemma), [
+    "venio, venire, veni, ventus",
+    "veneo, venire, venivi, venitus"
+  ]);
+  assert.equal(hasMeaning(entries, "hunt"), false);
+  assert.deepEqual(entries[0].forms.sort(), [
+    "perfect · active · indicative · 3rd person · singular",
+    "present · active · indicative · 3rd person · singular"
+  ]);
+  assert.deepEqual(entries[1].forms, ["present · active · indicative · 3rd person · singular"]);
+});
+
+test("present and gerundive participles use the present stem", async () => {
+  const amans = await lookup("amans");
+  assert.equal(amans.length, 3);
+  assert.equal(amans[0].lemma, "amo, amare, amavi, amatus");
+  assert.equal(amans[0].part, "participle");
+  assert.equal(amans[1].lemma, "amans, amantis, amantior, amantissimus");
+  assert.equal(amans[2].lemma, "amans, amantis");
+
+  const amandus = await lookup("amandus");
+  assert.equal(amandus[0].lemma, "amo, amare, amavi, amatus");
+  assert.equal(amandus[0].part, "participle");
+  assert.equal((await lookup("amatans")).length, 0);
+  assert.equal((await lookup("amatandus")).length, 0);
+});
+
+test("perfect and future active participles continue to use the supine stem", async () => {
+  const amatus = await lookup("amatus");
+  const amaturus = await lookup("amaturus");
+  assert.ok(amatus.some((entry) => entry.lemma === "amo, amare, amavi, amatus" && entry.part === "participle"));
+  assert.ok(amaturus.some((entry) => entry.lemma === "amo, amare, amavi, amatus" && entry.part === "participle"));
+});
+
+test("semideponents reject regular passive-present and active-perfect forms", async () => {
+  assert.ok((await lookup("audes")).some((entry) => entry.lemma === "audeo, audere, ausus sum"));
+  assert.equal((await lookup("auderis")).some((entry) => entry.meaning.includes("intend")), false);
+  const ausi = await lookup("ausi");
+  const audeo = ausi.find((entry) => entry.lemma === "audeo, audere, ausus sum");
+  assert.ok(audeo);
+  assert.equal(audeo.forms.some((form) => form.startsWith("perfect · active")), false);
+  assert.equal((await lookup("ausim")).some((entry) => entry.forms.some((form) => form.startsWith("perfect · active"))), false);
+});
+
+test("impersonal entries are finite only in the third-person singular", async () => {
+  const licet = await lookup("licet");
+  assert.ok(licet.some((entry) => entry.lemma === "licet, licere, licui, licitus est"));
+  const lices = await lookup("lices");
+  assert.equal(hasMeaning(lices, "permitted"), false);
+  assert.ok(hasMeaning(lices, "fetch"));
+  assert.equal(hasMeaning(await lookup("pudeo"), "it shames"), false);
+});
+
+test("deponent principal parts and morphology are presented as deponent", async () => {
+  const entry = (await lookup("loquitur"))[0];
+  assert.equal(entry.lemma, "loquor, loqui, locutus sum");
+  assert.deepEqual(entry.forms, ["present · indicative · 3rd person · singular"]);
+});
+
+test("partes remains nominal, not verbal", async () => {
+  assert.ok((await lookup("partes")).every((entry) => !["verb", "participle"].includes(entry.part)));
+});
