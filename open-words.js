@@ -115,6 +115,15 @@ function genderMatches(word, inflection) {
   if (endingGender === "C") return wordGender !== "N";
   return wordGender === endingGender;
 }
+function adjectiveDegreeMatches(word, inflection) {
+  if (word.pos !== "ADJ" || inflection.pos !== "ADJ") return true;
+  const degree = word.form.trim().split(/\s+/)[2];
+  const comparisonFamily = inflection.n?.[0] === 0 && /^3\s/.test(inflection.ending);
+  const superlativeFamily = inflection.n?.[0] === 0 && /^4\s/.test(inflection.ending);
+  if (degree === "COMP") return comparisonFamily;
+  if (degree === "SUPER") return superlativeFamily;
+  return !comparisonFamily && !superlativeFamily;
+}
 function formatForm(form, pos) {
   const words = form.trim().split(/\s+/).filter(Boolean);
   const personIndex = pos === "V" ? words.findIndex((word) => /^[123]$/.test(word)) : -1;
@@ -144,9 +153,40 @@ function appendEnding(stem, ending, fallback) {
   if (!stem) return "";
   return `${stem}${ending ?? fallback}`;
 }
+function formatPronounLemma(word) {
+  if (word.id == null) return word.lemma ?? word.orth;
+  const [first = word.orth, second = first] = (word.parts ?? [word.orth]).map((part) => part.trim());
+  const [declension, variant] = word.n ?? [];
+  const kind = word.pronounType ?? word.form.trim().split(/\s+/).at(-1);
+  if (declension === 1) {
+    if (normalize(first) === "aliqu") {
+      return kind === "ADJECT" ? "aliqui, aliqua, aliquod" : "aliquis, aliquid";
+    }
+    if (normalize(first) === "qu") {
+      return kind === "REL" || kind === "ADJECT" ? "qui, quae, quod" : "quis, quid";
+    }
+  }
+  if (declension === 3) {
+    const neuter = normalize(first) === "h" ? `${first}oc` : `${second}c`;
+    return `${first}ic, ${first}aec, ${neuter}`;
+  }
+  if (declension === 4) {
+    if (variant === 1) return `${first}s, ${second}a, ${first}d`;
+    if (variant === 2) return `${first}dem, ${second}adem, ${first}dem`;
+  }
+  if (declension === 5) {
+    if (variant === 1) return "ego";
+    if (variant === 2) return "tu";
+    if (variant === 3) return normalize(first) === "n" ? "nos" : "vos";
+    if (variant === 4) return "sui";
+  }
+  if (declension === 6) return `${first}e, ${first}a, ${first}${variant === 2 ? "um" : "ud"}`;
+  return "";
+}
 function formatLemma(word, inflections) {
   const rawParts = (word.parts ?? [word.orth]).map((part) => part.trim());
   const parts = rawParts.filter(Boolean);
+  if (word.pos === "PRON") return formatPronounLemma(word) || parts.join(", ") || word.orth;
   if (word.id == null && parts.length > 1) return parts.join(", ");
   const declension = Number(word.n?.[0] ?? 0);
   if (word.pos === "N") {
@@ -224,6 +264,20 @@ function toEntry(word, forms, suffixNote, inflections) {
     forms: displayedForms.slice(0, 8)
   };
 }
+function normalizeExactPronoun(word) {
+  if (word.pos !== "P" || !word.form?.startsWith("RON ")) return word;
+  const tokens = word.form.trim().split(/\s+/);
+  const declension = Number(tokens[1]);
+  const variant = Number(tokens[2]);
+  return {
+    ...word,
+    pos: "PRON",
+    n: [declension, variant],
+    form: tokens.slice(3, -1).join(" "),
+    pronounType: tokens.at(-1),
+    lemma: declension === 4 && variant === 2 ? "idem, eadem, idem" : word.orth
+  };
+}
 class OpenWordsEngine {
   constructor(words, stems, inflections, uniques, customWords, addons) {
     this.inflections = inflections;
@@ -240,7 +294,8 @@ class OpenWordsEngine {
       collection.push(stem);
       this.stemsByOrth.set(key, collection);
     }
-    for (const word of [...uniques, ...customWords]) {
+    for (const sourceWord of [...uniques, ...customWords]) {
+      const word = normalizeExactPronoun(sourceWord);
       const key = normalize(word.orth);
       this.exactByOrth.set(key, [...this.exactByOrth.get(key) ?? [], word]);
     }
@@ -255,6 +310,15 @@ class OpenWordsEngine {
     );
     let lookupToken = token;
     let suffixNote = "";
+    let idemTackon = false;
+    const dem = this.addons.not_packons?.find((addon) => normalize(addon.orth) === "dem");
+    if (dem && lookupToken.length > 3 && lookupToken.endsWith("dem")) {
+      const possibleBase = lookupToken.slice(0, -3);
+      if (this.hasPossibleStem(possibleBase)) {
+        lookupToken = possibleBase;
+        idemTackon = true;
+      }
+    }
     for (const addon of this.addons.tackons ?? []) {
       const suffix = normalize(addon.orth);
       if (lookupToken.length > suffix.length + 1 && lookupToken.endsWith(suffix)) {
@@ -275,7 +339,9 @@ class OpenWordsEngine {
       for (const stem of possibleStems) {
         if (!sameInflectionFamily(stem, inflection)) continue;
         const word = this.wordsById.get(stem.wid);
-        if (!word || !genderMatches(word, inflection) || !verbStemMatches(word, stem, inflection)) continue;
+        if (!word || !genderMatches(word, inflection) || !adjectiveDegreeMatches(word, inflection) || !verbStemMatches(word, stem, inflection)) continue;
+        const isIdemEntry = word.pos === "PRON" && sameNumberPair(word.n, [4, 2]);
+        if (isIdemEntry !== idemTackon) continue;
         const current = candidates.get(stem.wid) ?? { word, forms: /* @__PURE__ */ new Set(), score: 0 };
         current.forms.add(formatForm(inflection.form, inflection.pos));
         const exactVariant = stem.n?.[1] === inflection.n?.[1] && inflection.n?.[1] !== 0;
@@ -290,7 +356,13 @@ class OpenWordsEngine {
     }
     const deduped = /* @__PURE__ */ new Map();
     for (const entry of exactEntries) {
-      deduped.set(`${entry.lemma}|${entry.meaning}`, { ...entry, score: Number.POSITIVE_INFINITY });
+      const key = `${entry.lemma}|${entry.meaning}`;
+      const existing = deduped.get(key);
+      if (existing) {
+        existing.forms = [.../* @__PURE__ */ new Set([...existing.forms, ...entry.forms])].slice(0, 8);
+      } else {
+        deduped.set(key, { ...entry, score: Number.POSITIVE_INFINITY });
+      }
     }
     for (const candidate of candidates.values()) {
       const entry = toEntry(candidate.word, [...candidate.forms], suffixNote, this.inflections);

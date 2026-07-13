@@ -80,3 +80,53 @@ test("deponent principal parts and morphology are presented as deponent", async 
 test("partes remains nominal, not verbal", async () => {
   assert.ok((await lookup("partes")).every((entry) => !["verb", "participle"].includes(entry.part)));
 });
+
+test("is and idem display their complete irregular pronoun headwords", async () => {
+  const isEntries = await lookup("is");
+  const isPronoun = isEntries.find((entry) => entry.part === "pronoun");
+  assert.ok(isPronoun);
+  assert.deepEqual(isEntries.map((entry) => entry.part).sort(), ["pronoun", "verb"]);
+  assert.equal(isPronoun.lemma, "is, ea, id");
+  assert.equal(isPronoun.meaning, "he/she/it/they (by GENDER/NUMBER)");
+  assert.equal(isEntries.some((entry) => entry.meaning.includes("the very same")), false);
+
+  const idemEntries = await lookup("idem");
+  assert.equal(idemEntries.length, 1);
+  assert.equal(idemEntries[0].lemma, "idem, eadem, idem");
+  assert.ok(idemEntries[0].meaning.includes("same"));
+});
+
+test("pronoun families display citation forms instead of internal stems", async () => {
+  const cases = [
+    ["qui", "qui, quae, quod"],
+    ["quis", "quis, quid"],
+    ["aliquis", "aliquis, aliquid"],
+    ["hic", "hic, haec, hoc"],
+    ["ille", "ille, illa, illud"],
+    ["ipse", "ipse, ipsa, ipsum"],
+    ["iste", "iste, ista, istud"],
+    ["ego", "ego"],
+    ["tu", "tu"],
+    ["nos", "nos"],
+    ["vos", "vos"],
+    ["sui", "sui"]
+  ];
+  for (const [token, lemma] of cases) {
+    const entries = await lookup(token);
+    assert.ok(entries.some((entry) => entry.part === "pronoun" && entry.lemma === lemma), `${token} should display ${lemma}`);
+  }
+});
+
+test("exact pronoun records are normalized and their forms are combined", async () => {
+  const entries = await lookup("eadem");
+  assert.ok(entries.length > 0);
+  assert.ok(entries.every((entry) => entry.part === "pronoun"));
+  assert.ok(entries.every((entry) => entry.lemma === "idem, eadem, idem"));
+  const exact = entries.find((entry) => entry.meaning.startsWith("same"));
+  assert.ok(exact);
+  assert.deepEqual(exact.forms.sort(), [
+    "accusative · plural · neuter",
+    "nominative · plural · neuter",
+    "nominative · singular · feminine"
+  ]);
+});
