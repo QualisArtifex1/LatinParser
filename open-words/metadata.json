@@ -1,1 +1,15 @@
-{"source":"/Users/anthonycornish/Documents/open_words","counts":{"words":39337,"stems":62085,"inflects":1784,"uniques":134}}
+{
+  "source": "Open Words conversion of Whitaker's Words",
+  "counts": {
+    "words": 39337,
+    "word_corrections": 1,
+    "stems": 62085,
+    "inflects": 1784,
+    "uniques": 134
+  },
+  "entry_metadata": {
+    "file": "entry-metadata.json",
+    "fields": ["age", "area", "geography", "frequency", "source"],
+    "description": "The five fixed-width dictionary metadata flags preserved from DICTLINE.GEN."
+  }
+}

@@ -12,7 +12,7 @@ globalThis.fetch = async (url) => {
   }
 };
 
-const { lookupLatinWord } = await import(pathToFileURL(`${process.cwd()}/open-words.js`));
+const { OpenWordsParser, lookupLatinWord } = await import(pathToFileURL(`${process.cwd()}/open-words.js`));
 const lookup = (word) => lookupLatinWord(word);
 const hasMeaning = (entries, text) => entries.some((entry) => entry.meaning.includes(text));
 
@@ -194,5 +194,56 @@ test("indeclinable conjunctions resolve as whole-word entries", async () => {
   assert.ok(entry);
   assert.equal(entry.lemma, "ut");
   assert.equal(entry.meaning, "to (+ subjunctive), in order that/to");
+  assert.deepEqual(entry.senses, [
+    "to (+ subjunctive), in order that/to",
+    "how, as, when, while",
+    "even if"
+  ]);
+  assert.deepEqual(entry.metadata, {
+    code: "XXXAX",
+    age: "X",
+    area: "X",
+    geography: "X",
+    frequency: "A",
+    source: "X"
+  });
   assert.deepEqual(entry.forms, ["indeclinable"]);
+});
+
+test("entries retain every dictionary sense", async () => {
+  const entry = (await lookup("abax")).find((item) => item.id.startsWith("29-"));
+  assert.ok(entry);
+  assert.deepEqual(entry.senses, [
+    "counting-board",
+    "side-board",
+    "slab table",
+    "panel",
+    "square stone on top of column"
+  ]);
+});
+
+test("the legacy parser pipeline does not cap definitions or forms", () => {
+  const words = Array.from({ length: 7 }, (_, index) => ({
+    id: index + 1,
+    orth: "x",
+    parts: ["x"],
+    pos: "CONJ",
+    form: "",
+    n: [0, 0],
+    senses: [`sense ${index + 1}`]
+  }));
+  const exactForms = Array.from({ length: 9 }, (_, index) => ({
+    orth: "y",
+    pos: "ADV",
+    form: `FORM${index + 1}`,
+    senses: ["same sense"]
+  }));
+  const metadata = {
+    fields: ["age", "area", "geography", "frequency", "source"],
+    codes: words.map(() => "XXXXX")
+  };
+  const parser = new OpenWordsParser(words, [], [], exactForms, [], {}, metadata);
+  assert.equal(parser.parse("x").length, 7);
+  assert.equal(parser.parseLine("x")[0].defs.length, 7);
+  assert.equal(parser.parse("y")[0].forms.length, 9);
 });

@@ -49,7 +49,13 @@ function sameInflectionFamily(stem, inflection) {
   const [stemClass, stemVariant] = stem.n;
   const [endingClass, endingVariant] = inflection.n;
   const classMatches = stemClass === endingClass || stemClass === 0 || endingClass === 0;
-  const variantMatches = stemVariant == null || endingVariant == null || stemVariant === endingVariant || stemVariant === 0 || endingVariant === 0;
+  // First-family pronouns use variant zero for their shared paradigm. Its
+  // generic endings must not admit specialized quis/aliquis variants; those
+  // variants have their own explicit endings. Other parts of speech (and the
+  // other pronoun families) use zero as the legacy wildcard.
+  const strictFirstPronounVariant = stem.pos === "PRON" && stemClass === 1 && endingVariant === 0;
+  const variantMatches = stemVariant == null || endingVariant == null || stemVariant === endingVariant || stemVariant === 0 ||
+    (!strictFirstPronounVariant && endingVariant === 0);
   return classMatches && variantMatches;
 }
 function stemPositions(word, stem) {
@@ -296,7 +302,16 @@ function formatLemma(word, inflections) {
   }
   return parts.join(", ") || word.orth;
 }
-function toEntry(word, forms, suffixNote, inflections) {
+function metadataForWord(word, entryMetadata) {
+  if (word.id == null) return undefined;
+  const code = entryMetadata.codes[word.id - 1];
+  if (!code) return undefined;
+  return {
+    code,
+    ...Object.fromEntries(entryMetadata.fields.map((field, index) => [field, code[index]]))
+  };
+}
+function toEntry(word, forms, suffixNote, inflections, entryMetadata) {
   const gender = genderName(word);
   const participleOnly = forms.length > 0 && forms.every((form) => form.includes("participle"));
   const entryPart = participleOnly ? "VPAR" : word.pos;
@@ -304,15 +319,19 @@ function toEntry(word, forms, suffixNote, inflections) {
   const deponent = isDeponent(word);
   const displayedForms = deponent ? forms.map((form) => form.replace("passive \xB7 ", "")) : forms;
   const senses = word.senses.map((sense) => sense.replace(/^\|/, "").trim()).filter(Boolean);
-  const extra = senses.slice(1, 4).join("; ");
   return {
     id: `${word.id ?? word.orth}-${word.pos}-${word.form}`,
     lemma: formatLemma(word, inflections),
     part,
     meaning: senses[0] ?? "Definition unavailable",
-    note: [extra, suffixNote].filter(Boolean).join(" \xB7 ") || void 0,
-    forms: displayedForms.slice(0, 8)
+    senses,
+    note: suffixNote || undefined,
+    metadata: metadataForWord(word, entryMetadata),
+    forms: [...new Set(displayedForms)]
   };
+}
+function entryKey(entry) {
+  return [entry.lemma, entry.part, JSON.stringify(entry.senses)].join("|");
 }
 function normalizeExactWord(word) {
   const pronoun = word.pos === "P" && word.form?.startsWith("RON ");
@@ -333,10 +352,14 @@ function normalizeExactWord(word) {
     lemma: pronoun && declension === 4 && variant === 2 ? "idem, eadem, idem" : word.orth
   };
 }
-class OpenWordsEngine {
-  constructor(words, stems, inflections, uniques, customWords, addons) {
-    this.inflections = inflections;
+// Readable browser port of the legacy Open Words Parse pipeline. The lookup
+// remains stem/inflection driven, while the compatibility predicates above
+// carry the correctness fixes discovered after the original app was built.
+class OpenWordsParser {
+  constructor(words, stems, inflections, uniques, customWords, addons, entryMetadata = { fields: [], codes: [] }) {
+    this.inflections = [...inflections];
     this.addons = addons;
+    this.entryMetadata = entryMetadata;
     this.wordsById = /* @__PURE__ */ new Map();
     this.stemsByOrth = /* @__PURE__ */ new Map();
     this.exactByOrth = /* @__PURE__ */ new Map();
@@ -360,12 +383,21 @@ class OpenWordsEngine {
     }
     this.inflections.sort((a, b) => b.ending.length - a.ending.length);
   }
+  parseLine(line) {
+    return (line.match(/[A-Za-z\u00C0-\u0233]+/g) ?? []).map((word) => ({ word, defs: this.parse(word) }));
+  }
+  parse(rawToken) {
+    return this.lookupBaseWord(rawToken);
+  }
   lookup(rawToken) {
+    return this.lookupBaseWord(rawToken);
+  }
+  lookupBaseWord(rawToken) {
     const token = normalize(rawToken);
     if (!token) return [];
     const exact = this.exactByOrth.get(token);
     const exactEntries = (exact ?? []).map((word) =>
-      toEntry(word, [word.form.trim() ? formatForm(word.form, word.pos) : "indeclinable"], "", this.inflections)
+      toEntry(word, [word.form.trim() ? formatForm(word.form, word.pos) : "indeclinable"], "", this.inflections, this.entryMetadata)
     );
     let lookupToken = token;
     let suffixNote = "";
@@ -419,26 +451,26 @@ class OpenWordsEngine {
     }
     const deduped = /* @__PURE__ */ new Map();
     for (const entry of exactEntries) {
-      const key = `${entry.lemma}|${entry.meaning}`;
+      const key = entryKey(entry);
       const existing = deduped.get(key);
       if (existing) {
-        existing.forms = [.../* @__PURE__ */ new Set([...existing.forms, ...entry.forms])].slice(0, 8);
+        existing.forms = [.../* @__PURE__ */ new Set([...existing.forms, ...entry.forms])];
       } else {
         deduped.set(key, { ...entry, score: Number.POSITIVE_INFINITY });
       }
     }
     for (const candidate of candidates.values()) {
-      const entry = toEntry(candidate.word, [...candidate.forms], suffixNote, this.inflections);
-      const key = `${entry.lemma}|${entry.meaning}`;
+      const entry = toEntry(candidate.word, [...candidate.forms], suffixNote, this.inflections, this.entryMetadata);
+      const key = entryKey(entry);
       const existing = deduped.get(key);
       if (existing) {
-        existing.forms = [.../* @__PURE__ */ new Set([...existing.forms, ...entry.forms])].slice(0, 8);
+        existing.forms = [.../* @__PURE__ */ new Set([...existing.forms, ...entry.forms])];
         existing.score = Math.max(existing.score, candidate.score);
       } else {
         deduped.set(key, { ...entry, score: candidate.score });
       }
     }
-    return [...deduped.values()].sort((a, b) => b.score - a.score || a.lemma.localeCompare(b.lemma)).slice(0, 6).map(({ score: _score, ...entry }) => entry);
+    return [...deduped.values()].sort((a, b) => b.score - a.score || a.lemma.localeCompare(b.lemma)).map(({ score: _score, ...entry }) => entry);
   }
   hasPossibleStem(token) {
     if (this.exactByOrth.has(token) || this.stemsByOrth.has(token)) return true;
@@ -463,10 +495,11 @@ function getEngine() {
       fetchData("inflects"),
       fetchData("uniques"),
       fetchData("custom-words"),
-      fetchData("addons")
+      fetchData("addons"),
+      fetchData("entry-metadata")
     ]).then(
-      ([words, wordCorrections, stems, inflections, uniques, customWords, addons]) =>
-        new OpenWordsEngine([...words, ...wordCorrections], stems, inflections, uniques, customWords, addons)
+      ([words, wordCorrections, stems, inflections, uniques, customWords, addons, entryMetadata]) =>
+        new OpenWordsParser([...words, ...wordCorrections], stems, inflections, uniques, customWords, addons, entryMetadata)
     );
   }
   return enginePromise;
@@ -475,5 +508,6 @@ async function lookupLatinWord(token) {
   return (await getEngine()).lookup(token);
 }
 export {
+  OpenWordsParser,
   lookupLatinWord
 };

@@ -17,8 +17,8 @@ globalThis.fetch = async (url) => {
 
 const { lookupLatinWord } = await import(pathToFileURL(path.join(root, "open-words.js")));
 const cases = await readJson("reference-cases.json");
-const [sourceWords, wordCorrections, stems, inflections, uniques] = await Promise.all(
-  ["words", "word-corrections", "stems", "inflects", "uniques"].map((name) => readJson(`open-words/${name}.json`))
+const [sourceWords, wordCorrections, stems, inflections, uniques, entryMetadata] = await Promise.all(
+  ["words", "word-corrections", "stems", "inflects", "uniques", "entry-metadata"].map((name) => readJson(`open-words/${name}.json`))
 );
 const words = [...sourceWords, ...wordCorrections];
 const errors = [];
@@ -40,6 +40,13 @@ function validateEntries(token, entries) {
     }
     if (!Array.isArray(entry.forms) || entry.forms.length === 0) fail(`${token}: ${entry.lemma} has no forms`);
     if (new Set(entry.forms).size !== entry.forms.length) fail(`${token}: ${entry.lemma} repeats a form`);
+    if (!Array.isArray(entry.senses) || entry.senses.length === 0) fail(`${token}: ${entry.lemma} has no senses`);
+    if (entry.meaning !== entry.senses?.[0]) fail(`${token}: ${entry.lemma} primary meaning is not its first sense`);
+    if (entry.metadata) {
+      if (!/^[A-Z?]{5}$/.test(entry.metadata.code)) fail(`${token}: ${entry.lemma} has invalid metadata`);
+      const rebuilt = ["age", "area", "geography", "frequency", "source"].map((field) => entry.metadata[field]).join("");
+      if (rebuilt !== entry.metadata.code) fail(`${token}: ${entry.lemma} metadata fields do not match its code`);
+    }
     if (entry.forms.some((form) => /\b(?:RON|DJ)\b/.test(form))) fail(`${token}: ${entry.lemma} exposes an imported data fragment`);
   }
 }
@@ -68,8 +75,10 @@ function sameFamily(stem, inflection) {
   if (!(stem.pos === inflection.pos || stem.pos === "V" && inflection.pos === "VPAR")) return false;
   const [stemClass, stemVariant] = stem.n ?? [];
   const [endingClass, endingVariant] = inflection.n ?? [];
+  const strictFirstPronounVariant = stem.pos === "PRON" && stemClass === 1 && endingVariant === 0;
   return (stemClass === endingClass || stemClass === 0 || endingClass === 0) &&
-    (stemVariant == null || endingVariant == null || stemVariant === endingVariant || stemVariant === 0 || endingVariant === 0);
+    (stemVariant == null || endingVariant == null || stemVariant === endingVariant || stemVariant === 0 ||
+      (!strictFirstPronounVariant && endingVariant === 0));
 }
 
 async function auditDataAndRepresentativeRules() {
@@ -77,6 +86,12 @@ async function auditDataAndRepresentativeRules() {
   for (const word of words) {
     if (ids.has(word.id)) fail(`duplicate dictionary id ${word.id}`);
     ids.add(word.id);
+    if (!/^[A-Z?]{5}$/.test(entryMetadata.codes[word.id - 1] ?? "")) {
+      fail(`dictionary id ${word.id} is missing fixed-width metadata`);
+    }
+  }
+  if (entryMetadata.codes.length !== words.length) {
+    fail(`metadata contains ${entryMetadata.codes.length} records for ${words.length} dictionary entries`);
   }
   for (const stem of stems) {
     if (!ids.has(stem.wid)) fail(`stem ${stem.orth} refers to missing dictionary id ${stem.wid}`);
@@ -84,8 +99,15 @@ async function auditDataAndRepresentativeRules() {
   for (const word of words.filter((word) => !word.form?.trim() && word.orth)) {
     const entries = await lookupLatinWord(word.orth);
     const expectedPart = word.pos === "CONJ" ? "conjunction" : "interjection";
-    if (!entries.some((entry) => entry.part === expectedPart && entry.lemma === word.orth && entry.forms.includes("indeclinable"))) {
+    const exactEntry = entries.find((entry) => entry.id.startsWith(`${word.id}-`) &&
+      entry.part === expectedPart && entry.lemma === word.orth && entry.forms.includes("indeclinable"));
+    if (!exactEntry) {
       fail(`${word.orth}: missing whole-word ${expectedPart} entry`);
+    } else {
+      const expectedSenses = word.senses.map((sense) => sense.replace(/^\|/, "").trim()).filter(Boolean);
+      if (JSON.stringify(exactEntry.senses) !== JSON.stringify(expectedSenses)) {
+        fail(`${word.orth}: whole-word entry does not preserve every source sense`);
+      }
     }
   }
 
@@ -175,6 +197,17 @@ async function auditAgainstLatinWords() {
     const normalizedMessage = payload.message.replace(/\s+/g, " ").toLocaleLowerCase();
     for (const headword of testCase.referenceHeadwords ?? []) {
       if (!normalizedMessage.includes(headword.toLocaleLowerCase())) fail(`${testCase.token}: latin-words.com no longer confirms headword ${headword}`);
+    }
+    for (const entry of local.filter((item) => item.metadata)) {
+      for (const sense of entry.senses) {
+        const normalizedSense = sense.replace(/\s+/g, " ").toLocaleLowerCase();
+        if (!normalizedMessage.includes(normalizedSense)) {
+          fail(`${testCase.token}: latin-words.com output is missing local sense ${JSON.stringify(sense)}`);
+        }
+      }
+      if (!normalizedMessage.includes(`[${entry.metadata.code.toLocaleLowerCase()}]`)) {
+        fail(`${testCase.token}: latin-words.com output is missing metadata [${entry.metadata.code}]`);
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 75));
   }

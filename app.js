@@ -39,14 +39,23 @@ function persistSavedEntries() {
 }
 
 function entryIsSaved(entry) {
-  return savedEntries.some((item) => item.lemma === entry.lemma && item.meaning === entry.meaning);
+  return savedEntries.some((item) => item.id === entry.id ||
+    (!item.id && item.lemma === entry.lemma && item.meaning === entry.meaning));
 }
 
 function toggleSavedEntry(entry) {
   if (entryIsSaved(entry)) {
-    savedEntries = savedEntries.filter((item) => !(item.lemma === entry.lemma && item.meaning === entry.meaning));
+    savedEntries = savedEntries.filter((item) => item.id !== entry.id &&
+      !(!item.id && item.lemma === entry.lemma && item.meaning === entry.meaning));
   } else {
-    savedEntries.push({ lemma: entry.lemma, part: entry.part, meaning: entry.meaning });
+    savedEntries.push({
+      id: entry.id,
+      lemma: entry.lemma,
+      part: entry.part,
+      meaning: entry.meaning,
+      senses: entry.senses,
+      metadata: entry.metadata
+    });
   }
   persistSavedEntries();
   renderDefinitions();
@@ -127,9 +136,22 @@ function renderDefinitions() {
     const main = makeElement("div", "definition-main");
     main.append(makeElement("span", "eyebrow", `Dictionary entry ${index + 1} of ${token.entries.length}`));
     main.append(makeElement("h2", "", entry.lemma));
-    main.append(makeElement("p", "part-of-speech", entry.part));
-    main.append(makeElement("p", "meaning", entry.meaning));
-    if (entry.note) main.append(makeElement("p", "definition-note", entry.note));
+    const classification = makeElement("div", "entry-classification");
+    classification.append(makeElement("p", "part-of-speech", entry.part));
+    if (entry.metadata?.code) {
+      const metadata = makeElement("p", "entry-metadata", `[${entry.metadata.code}]`);
+      metadata.title = entry.metadata.fields?.join(", ") ||
+        `age ${entry.metadata.age}; area ${entry.metadata.area}; geography ${entry.metadata.geography}; frequency ${entry.metadata.frequency}; source ${entry.metadata.source}`;
+      classification.append(metadata);
+    }
+    main.append(classification);
+    const senses = entry.senses?.length ? entry.senses : [entry.meaning];
+    const senseList = makeElement("div", "definition-senses");
+    senses.forEach((sense, senseIndex) => {
+      senseList.append(makeElement("p", senseIndex === 0 ? "meaning" : "definition-note", sense));
+    });
+    main.append(senseList);
+    if (entry.note) main.append(makeElement("p", "lookup-note", entry.note));
     card.append(main);
 
     const grammar = makeElement("div", "grammar-panel");
@@ -147,7 +169,10 @@ function renderDefinitions() {
 }
 
 function studyText() {
-  return savedEntries.map((item) => `${item.lemma}\t${item.part}\t${item.meaning}`).join("\n");
+  return savedEntries.map((item) => {
+    const definitions = item.senses?.length ? item.senses.join("; ") : item.meaning;
+    return `${item.lemma}\t${item.part}\t${definitions}`;
+  }).join("\n");
 }
 
 function renderStudyList() {
@@ -170,13 +195,14 @@ function renderStudyList() {
     const copy = document.createElement("div");
     copy.append(makeElement("h3", "", entry.lemma));
     copy.append(makeElement("small", "", entry.part));
-    copy.append(makeElement("p", "", entry.meaning));
+    copy.append(makeElement("p", "", entry.senses?.length ? entry.senses.join("; ") : entry.meaning));
     article.append(copy);
     const remove = makeElement("button", "", "Remove");
     remove.type = "button";
     remove.setAttribute("aria-label", `Remove ${entry.lemma}`);
     remove.addEventListener("click", () => {
-      savedEntries = savedEntries.filter((item) => !(item.lemma === entry.lemma && item.meaning === entry.meaning));
+      savedEntries = savedEntries.filter((item) => item.id !== entry.id &&
+        !(!item.id && item.lemma === entry.lemma && item.meaning === entry.meaning));
       persistSavedEntries();
       renderDefinitions();
     });
@@ -245,3 +271,9 @@ downloadButton.addEventListener("click", () => {
 });
 
 renderStudyList();
+
+const initialQuery = new URLSearchParams(window.location.search).get("q")?.trim();
+if (initialQuery) {
+  passage.value = initialQuery;
+  runAnalysis(initialQuery);
+}
