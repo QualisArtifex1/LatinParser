@@ -61,7 +61,7 @@ function makeElement(tag, className, text) {
 
 function setAnalyzing(active) {
   analyzeButton.disabled = active || !passage.value.trim();
-  analyzeLabel.textContent = active ? "Loading Open Words…" : "Analyze passage";
+  analyzeLabel.textContent = active ? "Analyzing passage…" : "Analyze passage";
   sampleButtons.forEach((button) => { button.disabled = active; });
 }
 
@@ -114,7 +114,7 @@ function renderDefinitions() {
     const message = makeElement("div", "not-found");
     message.append(makeElement("span", "eyebrow", "No dictionary entry"));
     message.append(makeElement("h2", "", token.text));
-    message.append(makeElement("p", "", "Open Words did not find this form. Try checking the spelling or removing punctuation."));
+    message.append(makeElement("p", "", "The dictionary did not find this form. Try checking the spelling or removing punctuation."));
     card.append(message);
     definitionList.append(card);
     return;

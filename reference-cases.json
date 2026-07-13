@@ -37,5 +37,7 @@
   { "token": "mi", "required": [{ "lemma": "mi", "partPrefix": "adjective", "forms": ["vocative · singular · masculine"] }] },
   { "token": "sum", "required": [{ "lemma": "sum, esse, fui, futurus", "partPrefix": "verb", "forms": ["present · active · indicative · 1st person · singular"] }], "referenceHeadwords": ["sum, esse, fui, futurus"] },
   { "token": "leg", "forbiddenPartPrefixes": ["verb"] },
-  { "token": "lege", "required": [{ "lemma": "lego, legere, legi, lectus", "partPrefix": "verb" }] }
+  { "token": "lege", "required": [{ "lemma": "lego, legere, legi, lectus", "partPrefix": "verb" }] },
+  { "token": "possum", "required": [{ "lemma": "possum, posse, potui", "partPrefix": "verb", "forms": ["present · active · indicative · 1st person · singular"] }], "referenceHeadwords": ["possum, posse, potui"] },
+  { "token": "ut", "required": [{ "lemma": "ut", "partPrefix": "conjunction", "forms": ["indeclinable"] }], "referenceHeadwords": ["ut"] }
 ]

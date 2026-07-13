@@ -256,6 +256,7 @@ function formatLemma(word, inflections) {
     const semiDeponent = flag === "SEMIDEP";
     const impersonal = flag === "IMPERS";
     if (flag === "TO_BE") return "sum, esse, fui, futurus";
+    if (flag === "TO_BEING") return "possum, posse, potui";
     const presentForm = impersonal ? "PRES ACTIVE IND 3 S" : deponent ? "PRES PASSIVE IND 1 S" : "PRES ACTIVE IND 1 S";
     const infinitiveForm = deponent ? "PRES PASSIVE INF 0 X" : "PRES ACTIVE INF 0 X";
     const defectiveConjugation = word.n?.[0] === 8 ? word.n?.[1] : 0;
@@ -353,6 +354,10 @@ class OpenWordsEngine {
       const key = normalize(word.orth);
       this.exactByOrth.set(key, [...this.exactByOrth.get(key) ?? [], word]);
     }
+    for (const word of words.filter((word) => !word.form?.trim() && word.orth)) {
+      const key = normalize(word.orth);
+      this.exactByOrth.set(key, [...this.exactByOrth.get(key) ?? [], word]);
+    }
     this.inflections.sort((a, b) => b.ending.length - a.ending.length);
   }
   lookup(rawToken) {
@@ -360,7 +365,7 @@ class OpenWordsEngine {
     if (!token) return [];
     const exact = this.exactByOrth.get(token);
     const exactEntries = (exact ?? []).map((word) =>
-      toEntry(word, [formatForm(word.form, word.pos)], "", this.inflections)
+      toEntry(word, [word.form.trim() ? formatForm(word.form, word.pos) : "indeclinable"], "", this.inflections)
     );
     let lookupToken = token;
     let suffixNote = "";

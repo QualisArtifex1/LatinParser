@@ -181,3 +181,18 @@ test("oblique noun stems do not masquerade as nominative forms", async () => {
   assert.ok((await lookup("lex")).some((entry) => entry.lemma === "lex, legis"));
   assert.ok((await lookup("legis")).some((entry) => entry.lemma === "lex, legis"));
 });
+
+test("possum uses its irregular principal parts", async () => {
+  const entry = (await lookup("possum")).find((item) => item.meaning.startsWith("be able"));
+  assert.ok(entry);
+  assert.equal(entry.lemma, "possum, posse, potui");
+  assert.deepEqual(entry.forms, ["present · active · indicative · 1st person · singular"]);
+});
+
+test("indeclinable conjunctions resolve as whole-word entries", async () => {
+  const entry = (await lookup("ut")).find((item) => item.part === "conjunction");
+  assert.ok(entry);
+  assert.equal(entry.lemma, "ut");
+  assert.equal(entry.meaning, "to (+ subjunctive), in order that/to");
+  assert.deepEqual(entry.forms, ["indeclinable"]);
+});

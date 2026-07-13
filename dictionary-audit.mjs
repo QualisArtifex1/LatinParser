@@ -81,6 +81,13 @@ async function auditDataAndRepresentativeRules() {
   for (const stem of stems) {
     if (!ids.has(stem.wid)) fail(`stem ${stem.orth} refers to missing dictionary id ${stem.wid}`);
   }
+  for (const word of words.filter((word) => !word.form?.trim() && word.orth)) {
+    const entries = await lookupLatinWord(word.orth);
+    const expectedPart = word.pos === "CONJ" ? "conjunction" : "interjection";
+    if (!entries.some((entry) => entry.part === expectedPart && entry.lemma === word.orth && entry.forms.includes("indeclinable"))) {
+      fail(`${word.orth}: missing whole-word ${expectedPart} entry`);
+    }
+  }
 
   const stemsByPos = new Map();
   for (const stem of stems) stemsByPos.set(stem.pos, [...stemsByPos.get(stem.pos) ?? [], stem]);
@@ -112,6 +119,11 @@ function referenceForms(message) {
   const signatures = new Set();
   const pattern = new RegExp(`^\\S+\\s+(${partCodes.join("|")})\\s+(.+)$`);
   for (const line of message.split(/\r?\n/)) {
+    const indeclinable = line.match(/^\S+\s+(CONJ|INTERJ)\s*$/);
+    if (indeclinable) {
+      signatures.add(`${indeclinable[1]}|INDECLINABLE`);
+      continue;
+    }
     const match = line.match(pattern);
     if (!match) continue;
     const tokens = match[2].trim().replace(/^\d+\s+\d+\s+/, "").split(/\s+/);
@@ -126,7 +138,7 @@ const formCodes = {
   singular: "S", plural: "P", masculine: "M", feminine: "F", neuter: "N", "common gender": "C",
   present: "PRES", imperfect: "IMPF", perfect: "PERF", future: "FUT", "future perfect": "FUTP", pluperfect: "PLUP",
   active: "ACTIVE", passive: "PASSIVE", indicative: "IND", subjunctive: "SUB", imperative: "IMP", infinitive: "INF", participle: "PPL",
-  positive: "POS", comparative: "COMP", superlative: "SUPER", pos: "POS"
+  positive: "POS", comparative: "COMP", superlative: "SUPER", pos: "POS", indeclinable: "INDECLINABLE"
 };
 const displayPartCodes = [["participle", "VPAR"], ["pronoun", "PRON"], ["preposition", "PREP"], ["adjective", "ADJ"], ["adverb", "ADV"], ["noun", "N"], ["verb", "V"], ["number", "NUM"], ["conjunction", "CONJ"], ["interjection", "INTERJ"], ["supine", "SUPINE"]];
 
