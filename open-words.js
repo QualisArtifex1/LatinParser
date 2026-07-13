@@ -100,12 +100,52 @@ function verbStemMatches(word, stem, inflection) {
     if (isPerfectSystem(inflection.form)) return false;
   }
   if (isImpersonal(word) && isFiniteForm(inflection.form) && !/\s3 S$/.test(inflection.form)) return false;
+  const bareThirdConjugationImperative = inflection.ending === "" &&
+    (sameNumberPair(inflection.n, [3, 1]) || sameNumberPair(inflection.n, [3, 2]));
+  if (bareThirdConjugationImperative && inflection.form.replace(/\s+/g, " ").trim() === "PRES ACTIVE IMP 2 S" &&
+    !/(?:dic|duc|fac|fer)$/.test(normalize(stem.orth))) return false;
   if (!specialVerbStemMatches(word, stem, inflection, positions)) return false;
   if (isPerfectSystem(inflection.form)) return positions.includes(2);
   if (positions.includes(3)) return false;
   const genericVariant = inflection.n?.[1] === 0;
   if (genericVariant) return positions.includes(0);
   return positions.includes(0) || positions.includes(1);
+}
+function pronounStemMatches(word, stem, inflection) {
+  if (stem.pos !== "PRON" || word.pos !== "PRON" || !word.parts) return true;
+  const positions = stemPositions(word, stem);
+  const [declension, variant] = word.n ?? [];
+  const form = inflection.form.replace(/\s+/g, " ").trim();
+  if (declension === 1 || declension === 3) {
+    const usesObliqueStem = form.startsWith("GEN S ") || form.startsWith("DAT S ");
+    return usesObliqueStem ? positions.includes(1) : positions.includes(0);
+  }
+  if (declension === 4) {
+    const ending = normalize(inflection.ending);
+    const sharedStemForm = form === "NOM P M" && ending === "i" ||
+      (form === "DAT P X" || form === "ABL P X") && ending === "is";
+    if (sharedStemForm) return positions.includes(0) || positions.includes(1);
+    const firstStemForm = form === "NOM S M";
+    return firstStemForm ? positions.includes(0) : positions.includes(1);
+  }
+  if (declension === 5) {
+    if (variant === 1) {
+      if (form.startsWith("DAT S ") && normalize(inflection.ending) === "i") return false;
+      return form.startsWith("NOM S ") ? positions.includes(0) : positions.includes(1);
+    }
+    if (variant === 2) return /^(NOM|VOC) S /.test(form) ? positions.includes(0) : positions.includes(1);
+    if (variant === 3) return form.startsWith("GEN P ") ? positions.includes(1) : positions.includes(0);
+    if (variant === 4) return positions.includes(1);
+  }
+  return true;
+}
+function nounStemMatches(word, stem, inflection) {
+  if (stem.pos !== "N" || word.pos !== "N" || !word.parts || ![2, 3].includes(word.n?.[0])) return true;
+  const positions = stemPositions(word, stem);
+  if (positions.length !== 1) return true;
+  const form = inflection.form.replace(/\s+/g, " ").trim();
+  const nominativeStemForm = form.startsWith("NOM S ") || form.startsWith("VOC S ");
+  return nominativeStemForm ? positions.includes(0) : positions.includes(1);
 }
 function genderMatches(word, inflection) {
   if (word.pos !== "N" || inflection.pos !== "N") return true;
@@ -131,6 +171,13 @@ function formatForm(form, pos) {
     if (index === personIndex) return `${word}${word === "1" ? "st" : word === "2" ? "nd" : "rd"} person`;
     return FORM_WORDS[word] ?? word.toLocaleLowerCase();
   }).filter((word) => word !== "x" && (pos === "V" || !/^\d+$/.test(word))).join(" \xB7 ");
+}
+function formatInflectionForm(inflection, word) {
+  if (word.pos !== "N" || inflection.pos !== "N") return formatForm(inflection.form, inflection.pos);
+  const tokens = inflection.form.trim().split(/\s+/);
+  const wordGender = word.form.trim().split(/\s+/)[2];
+  if (tokens[2] === "X" || tokens[2] === "C") tokens[2] = wordGender;
+  return formatForm(tokens.join(" "), inflection.pos);
 }
 function genderName(word) {
   if (word.pos !== "N") return "";
@@ -187,6 +234,7 @@ function formatLemma(word, inflections) {
   const rawParts = (word.parts ?? [word.orth]).map((part) => part.trim());
   const parts = rawParts.filter(Boolean);
   if (word.pos === "PRON") return formatPronounLemma(word) || parts.join(", ") || word.orth;
+  if (word.id == null && word.lemma) return word.lemma;
   if (word.id == null && parts.length > 1) return parts.join(", ");
   const declension = Number(word.n?.[0] ?? 0);
   if (word.pos === "N") {
@@ -207,6 +255,7 @@ function formatLemma(word, inflections) {
     const deponent = flag === "DEP";
     const semiDeponent = flag === "SEMIDEP";
     const impersonal = flag === "IMPERS";
+    if (flag === "TO_BE") return "sum, esse, fui, futurus";
     const presentForm = impersonal ? "PRES ACTIVE IND 3 S" : deponent ? "PRES PASSIVE IND 1 S" : "PRES ACTIVE IND 1 S";
     const infinitiveForm = deponent ? "PRES PASSIVE INF 0 X" : "PRES ACTIVE INF 0 X";
     const defectiveConjugation = word.n?.[0] === 8 ? word.n?.[1] : 0;
@@ -264,18 +313,23 @@ function toEntry(word, forms, suffixNote, inflections) {
     forms: displayedForms.slice(0, 8)
   };
 }
-function normalizeExactPronoun(word) {
-  if (word.pos !== "P" || !word.form?.startsWith("RON ")) return word;
+function normalizeExactWord(word) {
+  const pronoun = word.pos === "P" && word.form?.startsWith("RON ");
+  const adjective = word.pos === "A" && word.form?.startsWith("DJ");
+  if (!pronoun && !adjective) {
+    if (word.pos === "V" && normalize(word.orth) === "sum") return { ...word, lemma: "sum, esse, fui, futurus" };
+    return word;
+  }
   const tokens = word.form.trim().split(/\s+/);
   const declension = Number(tokens[1]);
   const variant = Number(tokens[2]);
   return {
     ...word,
-    pos: "PRON",
+    pos: pronoun ? "PRON" : "ADJ",
     n: [declension, variant],
     form: tokens.slice(3, -1).join(" "),
-    pronounType: tokens.at(-1),
-    lemma: declension === 4 && variant === 2 ? "idem, eadem, idem" : word.orth
+    ...(pronoun ? { pronounType: tokens.at(-1) } : {}),
+    lemma: pronoun && declension === 4 && variant === 2 ? "idem, eadem, idem" : word.orth
   };
 }
 class OpenWordsEngine {
@@ -295,7 +349,7 @@ class OpenWordsEngine {
       this.stemsByOrth.set(key, collection);
     }
     for (const sourceWord of [...uniques, ...customWords]) {
-      const word = normalizeExactPronoun(sourceWord);
+      const word = normalizeExactWord(sourceWord);
       const key = normalize(word.orth);
       this.exactByOrth.set(key, [...this.exactByOrth.get(key) ?? [], word]);
     }
@@ -331,6 +385,7 @@ class OpenWordsEngine {
       }
     }
     const candidates = /* @__PURE__ */ new Map();
+    const exactPronounFamilies = new Set((exact ?? []).filter((word) => word.pos === "PRON").map((word) => word.n?.join(".")));
     for (const inflection of this.inflections) {
       const ending = normalize(inflection.ending);
       if (!lookupToken.endsWith(ending)) continue;
@@ -339,11 +394,14 @@ class OpenWordsEngine {
       for (const stem of possibleStems) {
         if (!sameInflectionFamily(stem, inflection)) continue;
         const word = this.wordsById.get(stem.wid);
-        if (!word || !genderMatches(word, inflection) || !adjectiveDegreeMatches(word, inflection) || !verbStemMatches(word, stem, inflection)) continue;
+        if (!word || !genderMatches(word, inflection) || !adjectiveDegreeMatches(word, inflection) ||
+          !verbStemMatches(word, stem, inflection) || !pronounStemMatches(word, stem, inflection) ||
+          !nounStemMatches(word, stem, inflection)) continue;
         const isIdemEntry = word.pos === "PRON" && sameNumberPair(word.n, [4, 2]);
         if (isIdemEntry !== idemTackon) continue;
+        if (word.pos === "PRON" && exactPronounFamilies.has(word.n?.join("."))) continue;
         const current = candidates.get(stem.wid) ?? { word, forms: /* @__PURE__ */ new Set(), score: 0 };
-        current.forms.add(formatForm(inflection.form, inflection.pos));
+        current.forms.add(formatInflectionForm(inflection, word));
         const exactVariant = stem.n?.[1] === inflection.n?.[1] && inflection.n?.[1] !== 0;
         const firstPersonVerb = word.pos === "V" && /IND\s+1\s+S/.test(inflection.form);
         const directPartMatch = stem.pos === inflection.pos;
@@ -395,13 +453,15 @@ function getEngine() {
   if (!enginePromise) {
     enginePromise = Promise.all([
       fetchData("words"),
+      fetchData("word-corrections"),
       fetchData("stems"),
       fetchData("inflects"),
       fetchData("uniques"),
       fetchData("custom-words"),
       fetchData("addons")
     ]).then(
-      ([words, stems, inflections, uniques, customWords, addons]) => new OpenWordsEngine(words, stems, inflections, uniques, customWords, addons)
+      ([words, wordCorrections, stems, inflections, uniques, customWords, addons]) =>
+        new OpenWordsEngine([...words, ...wordCorrections], stems, inflections, uniques, customWords, addons)
     );
   }
   return enginePromise;

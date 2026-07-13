@@ -88,6 +88,7 @@ test("is and idem display their complete irregular pronoun headwords", async () 
   assert.deepEqual(isEntries.map((entry) => entry.part).sort(), ["pronoun", "verb"]);
   assert.equal(isPronoun.lemma, "is, ea, id");
   assert.equal(isPronoun.meaning, "he/she/it/they (by GENDER/NUMBER)");
+  assert.deepEqual(isPronoun.forms, ["nominative · singular · masculine"]);
   assert.equal(isEntries.some((entry) => entry.meaning.includes("the very same")), false);
 
   const idemEntries = await lookup("idem");
@@ -119,7 +120,7 @@ test("pronoun families display citation forms instead of internal stems", async 
 
 test("exact pronoun records are normalized and their forms are combined", async () => {
   const entries = await lookup("eadem");
-  assert.ok(entries.length > 0);
+  assert.equal(entries.length, 1);
   assert.ok(entries.every((entry) => entry.part === "pronoun"));
   assert.ok(entries.every((entry) => entry.lemma === "idem, eadem, idem"));
   const exact = entries.find((entry) => entry.meaning.startsWith("same"));
@@ -129,4 +130,54 @@ test("exact pronoun records are normalized and their forms are combined", async 
     "nominative · plural · neuter",
     "nominative · singular · feminine"
   ]);
+});
+
+test("exact adjective records are normalized from the fixed-width import", async () => {
+  const mi = await lookup("mi");
+  const adjective = mi.find((entry) => entry.meaning.startsWith("my"));
+  assert.ok(adjective);
+  assert.equal(adjective.part, "adjective");
+  assert.equal(adjective.lemma, "mi");
+  assert.deepEqual(adjective.forms, ["vocative · singular · masculine"]);
+});
+
+test("pronoun stems are used only with their matching inflection families", async () => {
+  const hic = (await lookup("hic")).find((entry) => entry.lemma === "hic, haec, hoc");
+  const qui = (await lookup("qui")).find((entry) => entry.lemma === "qui, quae, quod");
+  assert.deepEqual(hic.forms, ["nominative · singular · masculine"]);
+  assert.equal(qui.forms.includes("dative · singular"), false);
+});
+
+test("noun forms use the dictionary entry's gender", async () => {
+  const partes = await lookup("partes");
+  assert.ok(partes.length > 0);
+  assert.ok(partes.every((entry) => entry.forms.every((form) => form.endsWith("feminine"))));
+  const amansNoun = (await lookup("amans")).find((entry) => entry.part === "noun · common gender");
+  assert.ok(amansNoun.forms.every((form) => form.endsWith("common gender")));
+});
+
+test("short third-conjugation imperatives are limited to genuine irregulars", async () => {
+  assert.equal((await lookup("leg")).some((entry) => entry.part === "verb"), false);
+  assert.ok((await lookup("lege")).some((entry) => entry.lemma === "lego, legere, legi, lectus"));
+  for (const token of ["dic", "duc", "fac", "fer"]) {
+    assert.ok((await lookup(token)).some((entry) => entry.part === "verb" && entry.forms.includes("present · active · imperative · 2nd person · singular")));
+  }
+});
+
+test("personal-pronoun alternatives do not acquire unrelated cases", async () => {
+  const ego = (await lookup("mi")).find((entry) => entry.lemma === "ego");
+  assert.ok(ego);
+  assert.equal(ego.forms.includes("dative · singular · common gender"), false);
+});
+
+test("the missing sum record is restored without admitting sumo's imperative", async () => {
+  const entries = await lookup("sum");
+  assert.ok(entries.some((entry) => entry.lemma === "sum, esse, fui, futurus"));
+  assert.equal(entries.some((entry) => entry.lemma.startsWith("sumo,")), false);
+});
+
+test("oblique noun stems do not masquerade as nominative forms", async () => {
+  assert.equal((await lookup("leg")).some((entry) => entry.lemma === "lex, legis"), false);
+  assert.ok((await lookup("lex")).some((entry) => entry.lemma === "lex, legis"));
+  assert.ok((await lookup("legis")).some((entry) => entry.lemma === "lex, legis"));
 });

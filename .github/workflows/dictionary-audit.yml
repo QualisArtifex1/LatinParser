@@ -1,0 +1,31 @@
+name: Dictionary audit
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      compare_live_reference:
+        description: Compare the curated corpus with latin-words.com
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run regression tests
+        run: node --test open-words.test.mjs
+      - name: Run structural dictionary audit
+        run: node dictionary-audit.mjs
+      - name: Compare with latin-words.com
+        if: ${{ inputs.compare_live_reference }}
+        run: node dictionary-audit.mjs --live

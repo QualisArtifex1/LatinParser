@@ -1,0 +1,181 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+const root = path.dirname(new URL(import.meta.url).pathname);
+const nativeFetch = globalThis.fetch.bind(globalThis);
+const readJson = async (name) => JSON.parse(await fs.readFile(path.join(root, name), "utf8"));
+
+globalThis.fetch = async (url) => {
+  const localPath = String(url).replace("./open-words/", "open-words/");
+  try {
+    return { ok: true, json: async () => readJson(localPath) };
+  } catch {
+    return { ok: false };
+  }
+};
+
+const { lookupLatinWord } = await import(pathToFileURL(path.join(root, "open-words.js")));
+const cases = await readJson("reference-cases.json");
+const [sourceWords, wordCorrections, stems, inflections, uniques] = await Promise.all(
+  ["words", "word-corrections", "stems", "inflects", "uniques"].map((name) => readJson(`open-words/${name}.json`))
+);
+const words = [...sourceWords, ...wordCorrections];
+const errors = [];
+const fail = (message) => errors.push(message);
+const normalize = (value) => value.toLocaleLowerCase().normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "").replace(/j/g, "i").replace(/v/g, "u").replace(/[^a-z]/g, "");
+
+function requiredEntryMatches(entry, required) {
+  return entry.lemma === required.lemma && entry.part.startsWith(required.partPrefix) &&
+    (required.forms ?? []).every((form) => entry.forms.includes(form));
+}
+
+function validateEntries(token, entries) {
+  const validParts = ["noun", "verb", "participle", "adjective", "adverb", "preposition", "pronoun", "number", "conjunction", "interjection", "supine", "pack"];
+  for (const entry of entries) {
+    if (!entry.lemma?.trim()) fail(`${token}: blank lemma`);
+    if (!validParts.some((part) => entry.part === part || entry.part.startsWith(`${part} ·`))) {
+      fail(`${token}: invalid displayed part of speech ${JSON.stringify(entry.part)}`);
+    }
+    if (!Array.isArray(entry.forms) || entry.forms.length === 0) fail(`${token}: ${entry.lemma} has no forms`);
+    if (new Set(entry.forms).size !== entry.forms.length) fail(`${token}: ${entry.lemma} repeats a form`);
+    if (entry.forms.some((form) => /\b(?:RON|DJ)\b/.test(form))) fail(`${token}: ${entry.lemma} exposes an imported data fragment`);
+  }
+}
+
+async function auditCuratedCases() {
+  for (const testCase of cases) {
+    const entries = await lookupLatinWord(testCase.token);
+    validateEntries(testCase.token, entries);
+    for (const required of testCase.required ?? []) {
+      if (!entries.some((entry) => requiredEntryMatches(entry, required))) {
+        fail(`${testCase.token}: missing ${required.partPrefix} ${required.lemma}`);
+      }
+    }
+    for (const prefix of testCase.forbiddenPartPrefixes ?? []) {
+      if (entries.some((entry) => entry.part.startsWith(prefix))) fail(`${testCase.token}: unexpectedly returned a ${prefix}`);
+    }
+    for (const meaning of testCase.forbiddenMeanings ?? []) {
+      if (entries.some((entry) => `${entry.meaning} ${entry.note ?? ""}`.includes(meaning))) {
+        fail(`${testCase.token}: unexpectedly returned a sense containing ${JSON.stringify(meaning)}`);
+      }
+    }
+  }
+}
+
+function sameFamily(stem, inflection) {
+  if (!(stem.pos === inflection.pos || stem.pos === "V" && inflection.pos === "VPAR")) return false;
+  const [stemClass, stemVariant] = stem.n ?? [];
+  const [endingClass, endingVariant] = inflection.n ?? [];
+  return (stemClass === endingClass || stemClass === 0 || endingClass === 0) &&
+    (stemVariant == null || endingVariant == null || stemVariant === endingVariant || stemVariant === 0 || endingVariant === 0);
+}
+
+async function auditDataAndRepresentativeRules() {
+  const ids = new Set();
+  for (const word of words) {
+    if (ids.has(word.id)) fail(`duplicate dictionary id ${word.id}`);
+    ids.add(word.id);
+  }
+  for (const stem of stems) {
+    if (!ids.has(stem.wid)) fail(`stem ${stem.orth} refers to missing dictionary id ${stem.wid}`);
+  }
+
+  const stemsByPos = new Map();
+  for (const stem of stems) stemsByPos.set(stem.pos, [...stemsByPos.get(stem.pos) ?? [], stem]);
+  const probes = new Set(cases.map((testCase) => normalize(testCase.token)));
+  for (const word of uniques) probes.add(normalize(word.orth));
+  let exercisedRules = 0;
+  for (const inflection of inflections) {
+    const possible = [
+      ...stemsByPos.get(inflection.pos) ?? [],
+      ...(inflection.pos === "VPAR" ? stemsByPos.get("V") ?? [] : [])
+    ];
+    const stem = possible.find((candidate) => sameFamily(candidate, inflection) && ids.has(candidate.wid));
+    if (!stem) continue;
+    const token = normalize(`${stem.orth}${inflection.ending}`);
+    if (token.length < 2) continue;
+    probes.add(token);
+    exercisedRules += 1;
+  }
+
+  for (const token of probes) validateEntries(token, await lookupLatinWord(token));
+  return { probes: probes.size, exercisedRules };
+}
+
+const partCodes = ["VPAR", "PRON", "INTERJ", "SUPINE", "PREP", "CONJ", "ADJ", "ADV", "NUM", "N", "V"];
+const morphologyStarts = new Set(["NOM", "VOC", "GEN", "DAT", "ACC", "ABL", "LOC", "PRES", "IMPF", "PERF", "FUT", "FUTP", "PLUP", "POS", "COMP", "SUPER"]);
+const morphologyLengths = { N: 3, PRON: 3, ADJ: 3, NUM: 3, V: 5, VPAR: 6, ADV: 1, PREP: 1, SUPINE: 3 };
+
+function referenceForms(message) {
+  const signatures = new Set();
+  const pattern = new RegExp(`^\\S+\\s+(${partCodes.join("|")})\\s+(.+)$`);
+  for (const line of message.split(/\r?\n/)) {
+    const match = line.match(pattern);
+    if (!match) continue;
+    const tokens = match[2].trim().replace(/^\d+\s+\d+\s+/, "").split(/\s+/);
+    if (!morphologyStarts.has(tokens[0]) || !morphologyLengths[match[1]]) continue;
+    signatures.add(`${match[1]}|${tokens.slice(0, morphologyLengths[match[1]]).filter((token) => token !== "X").join(" ")}`);
+  }
+  return signatures;
+}
+
+const formCodes = {
+  nominative: "NOM", vocative: "VOC", genitive: "GEN", dative: "DAT", accusative: "ACC", ablative: "ABL", locative: "LOC",
+  singular: "S", plural: "P", masculine: "M", feminine: "F", neuter: "N", "common gender": "C",
+  present: "PRES", imperfect: "IMPF", perfect: "PERF", future: "FUT", "future perfect": "FUTP", pluperfect: "PLUP",
+  active: "ACTIVE", passive: "PASSIVE", indicative: "IND", subjunctive: "SUB", imperative: "IMP", infinitive: "INF", participle: "PPL",
+  positive: "POS", comparative: "COMP", superlative: "SUPER", pos: "POS"
+};
+const displayPartCodes = [["participle", "VPAR"], ["pronoun", "PRON"], ["preposition", "PREP"], ["adjective", "ADJ"], ["adverb", "ADV"], ["noun", "N"], ["verb", "V"], ["number", "NUM"], ["conjunction", "CONJ"], ["interjection", "INTERJ"], ["supine", "SUPINE"]];
+
+function localSignature(entry, form) {
+  const part = displayPartCodes.find(([label]) => entry.part.startsWith(label))?.[1] ?? "?";
+  const tokens = form.split(" · ").map((token) => token.match(/^([123])(?:st|nd|rd) person$/)?.[1] ?? formCodes[token] ?? token.toUpperCase());
+  return `${part}|${tokens.join(" ")}`;
+}
+
+function referenceContainsLocal(signature, reference) {
+  if (reference.has(signature)) return true;
+  const [part, form] = signature.split("|");
+  if (part !== "V" || /ACTIVE|PASSIVE/.test(form)) return false;
+  return [...reference].some((candidate) => candidate.startsWith("V|") && candidate.replace(/ (?:ACTIVE|PASSIVE) /, " ") === signature);
+}
+
+async function auditAgainstLatinWords() {
+  for (const testCase of cases) {
+    const response = await nativeFetch(`https://latin-words.com/cgi-bin/translate.cgi?query=${encodeURIComponent(testCase.token)}`);
+    if (!response.ok) {
+      fail(`${testCase.token}: latin-words.com returned HTTP ${response.status}`);
+      continue;
+    }
+    const payload = await response.json();
+    if (payload.status !== "ok") {
+      fail(`${testCase.token}: latin-words.com lookup failed: ${payload.message}`);
+      continue;
+    }
+    const reference = referenceForms(payload.message);
+    const local = await lookupLatinWord(testCase.token);
+    for (const signature of new Set(local.flatMap((entry) => entry.forms.map((form) => localSignature(entry, form))))) {
+      if (!referenceContainsLocal(signature, reference)) fail(`${testCase.token}: local form ${signature} is absent from latin-words.com`);
+    }
+    const normalizedMessage = payload.message.replace(/\s+/g, " ").toLocaleLowerCase();
+    for (const headword of testCase.referenceHeadwords ?? []) {
+      if (!normalizedMessage.includes(headword.toLocaleLowerCase())) fail(`${testCase.token}: latin-words.com no longer confirms headword ${headword}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 75));
+  }
+}
+
+await auditCuratedCases();
+const coverage = await auditDataAndRepresentativeRules();
+if (process.argv.includes("--live")) await auditAgainstLatinWords();
+
+if (errors.length) {
+  console.error(`Dictionary audit failed with ${errors.length} issue(s):`);
+  for (const error of errors) console.error(`- ${error}`);
+  process.exitCode = 1;
+} else {
+  console.log(`Dictionary audit passed: ${cases.length} curated cases, ${coverage.probes} structural probes, ${coverage.exercisedRules}/${inflections.length} inflection rules exercised${process.argv.includes("--live") ? ", live latin-words.com comparison included" : ""}.`);
+}
