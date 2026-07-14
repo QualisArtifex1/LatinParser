@@ -140,17 +140,6 @@ function renderDefinitions() {
     main.append(makeElement("h2", "", entry.lemma));
     const classification = makeElement("div", "entry-classification");
     classification.append(makeElement("p", "part-of-speech", entry.part));
-    const metadataVariants = entry.metadataVariants?.length ? entry.metadataVariants : entry.metadata ? [entry.metadata] : [];
-    if (metadataVariants.length) {
-      const metadataList = makeElement("div", "entry-metadata-list");
-      metadataVariants.forEach((variant) => {
-        const metadata = makeElement("p", "entry-metadata", `[${variant.code}]`);
-        metadata.title = variant.fields?.join(", ") ||
-          `age ${variant.age}; area ${variant.area}; geography ${variant.geography}; frequency ${variant.frequency}; source ${variant.source}`;
-        metadataList.append(metadata);
-      });
-      classification.append(metadataList);
-    }
     main.append(classification);
     const senses = entry.senses?.length ? entry.senses : [entry.meaning];
     const senseList = makeElement("ol", "definition-senses");
