@@ -12,7 +12,7 @@ Run `node scripts/sync-dictionary-consumers.mjs` after a verified change to copy
 
 ## Data fidelity
 
-Every dictionary sense is returned and rendered. Results and grammatical forms are not truncated. `open-words/entry-metadata.json` preserves the five fixed-width Whitaker metadata fields—age, area, geography, frequency, and source—for every imported dictionary record. Regenerate that file from the original data with:
+Every dictionary sense is returned and rendered. Physical continuation records that share a headword and part of speech are presented as one lexical entry, with their senses shown as a numbered list. Results and grammatical forms are not truncated. `open-words/entry-metadata.json` preserves the five fixed-width Whitaker metadata fields—age, area, geography, frequency, and source—for every imported dictionary record. Regenerate that file from the original data with:
 
 ```sh
 node scripts/build-entry-metadata.mjs /path/to/DICTLINE.GEN

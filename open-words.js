@@ -318,7 +318,8 @@ function toEntry(word, forms, suffixNote, inflections, entryMetadata) {
   const part = [PARTS[entryPart] ?? entryPart.toLocaleLowerCase(), gender].filter(Boolean).join(" \xB7 ");
   const deponent = isDeponent(word);
   const displayedForms = deponent ? forms.map((form) => form.replace("passive \xB7 ", "")) : forms;
-  const senses = word.senses.map((sense) => sense.replace(/^\|/, "").trim()).filter(Boolean);
+  const senses = word.senses.map((sense) => sense.replace(/^\|+/, "").trim()).filter(Boolean);
+  const metadata = metadataForWord(word, entryMetadata);
   return {
     id: `${word.id ?? word.orth}-${word.pos}-${word.form}`,
     lemma: formatLemma(word, inflections),
@@ -326,12 +327,28 @@ function toEntry(word, forms, suffixNote, inflections, entryMetadata) {
     meaning: senses[0] ?? "Definition unavailable",
     senses,
     note: suffixNote || undefined,
-    metadata: metadataForWord(word, entryMetadata),
+    sourceIds: word.id == null ? [] : [word.id],
+    metadata,
+    metadataVariants: metadata ? [metadata] : [],
     forms: [...new Set(displayedForms)]
   };
 }
 function entryKey(entry) {
-  return [entry.lemma, entry.part, JSON.stringify(entry.senses)].join("|");
+  return [entry.lemma, entry.part].join("|");
+}
+function mergeEntries(existing, incoming, score) {
+  existing.forms = [...new Set([...existing.forms, ...incoming.forms])];
+  existing.senses = [...new Set([...existing.senses, ...incoming.senses])];
+  existing.meaning = existing.senses[0] ?? existing.meaning;
+  existing.sourceIds = [...new Set([...existing.sourceIds, ...incoming.sourceIds])];
+  const metadataByCode = new Map(
+    [...existing.metadataVariants, ...incoming.metadataVariants].map((metadata) => [metadata.code, metadata])
+  );
+  existing.metadataVariants = [...metadataByCode.values()];
+  existing.metadata = existing.metadataVariants[0];
+  existing.note = [...new Set([existing.note, incoming.note].filter(Boolean))].join(" · ") || undefined;
+  existing.score = Math.max(existing.score, score);
+  return existing;
 }
 function normalizeExactWord(word) {
   const pronoun = word.pos === "P" && word.form?.startsWith("RON ");
@@ -454,7 +471,7 @@ class OpenWordsParser {
       const key = entryKey(entry);
       const existing = deduped.get(key);
       if (existing) {
-        existing.forms = [.../* @__PURE__ */ new Set([...existing.forms, ...entry.forms])];
+        mergeEntries(existing, entry, Number.POSITIVE_INFINITY);
       } else {
         deduped.set(key, { ...entry, score: Number.POSITIVE_INFINITY });
       }
@@ -464,8 +481,7 @@ class OpenWordsParser {
       const key = entryKey(entry);
       const existing = deduped.get(key);
       if (existing) {
-        existing.forms = [.../* @__PURE__ */ new Set([...existing.forms, ...entry.forms])];
-        existing.score = Math.max(existing.score, candidate.score);
+        mergeEntries(existing, entry, candidate.score);
       } else {
         deduped.set(key, { ...entry, score: candidate.score });
       }

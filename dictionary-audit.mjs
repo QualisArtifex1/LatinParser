@@ -21,6 +21,7 @@ const [sourceWords, wordCorrections, stems, inflections, uniques, entryMetadata]
   ["words", "word-corrections", "stems", "inflects", "uniques", "entry-metadata"].map((name) => readJson(`open-words/${name}.json`))
 );
 const words = [...sourceWords, ...wordCorrections];
+const wordsById = new Map(words.map((word) => [word.id, word]));
 const errors = [];
 const fail = (message) => errors.push(message);
 const normalize = (value) => value.toLocaleLowerCase().normalize("NFD")
@@ -41,12 +42,20 @@ function validateEntries(token, entries) {
     if (!Array.isArray(entry.forms) || entry.forms.length === 0) fail(`${token}: ${entry.lemma} has no forms`);
     if (new Set(entry.forms).size !== entry.forms.length) fail(`${token}: ${entry.lemma} repeats a form`);
     if (!Array.isArray(entry.senses) || entry.senses.length === 0) fail(`${token}: ${entry.lemma} has no senses`);
+    if (new Set(entry.senses).size !== entry.senses.length) fail(`${token}: ${entry.lemma} repeats a sense`);
     if (entry.meaning !== entry.senses?.[0]) fail(`${token}: ${entry.lemma} primary meaning is not its first sense`);
-    if (entry.metadata) {
-      if (!/^[A-Z?]{5}$/.test(entry.metadata.code)) fail(`${token}: ${entry.lemma} has invalid metadata`);
-      const rebuilt = ["age", "area", "geography", "frequency", "source"].map((field) => entry.metadata[field]).join("");
-      if (rebuilt !== entry.metadata.code) fail(`${token}: ${entry.lemma} metadata fields do not match its code`);
+    if (!Array.isArray(entry.sourceIds)) fail(`${token}: ${entry.lemma} has no source record list`);
+    if (!Array.isArray(entry.metadataVariants)) fail(`${token}: ${entry.lemma} has no metadata variant list`);
+    if (new Set(entry.sourceIds).size !== entry.sourceIds.length) fail(`${token}: ${entry.lemma} repeats a source record`);
+    if (new Set(entry.metadataVariants.map((metadata) => metadata.code)).size !== entry.metadataVariants.length) {
+      fail(`${token}: ${entry.lemma} repeats a metadata variant`);
     }
+    for (const metadata of entry.metadataVariants) {
+      if (!/^[A-Z?]{5}$/.test(metadata.code)) fail(`${token}: ${entry.lemma} has invalid metadata`);
+      const rebuilt = ["age", "area", "geography", "frequency", "source"].map((field) => metadata[field]).join("");
+      if (rebuilt !== metadata.code) fail(`${token}: ${entry.lemma} metadata fields do not match its code`);
+    }
+    if (entry.metadata?.code !== entry.metadataVariants[0]?.code) fail(`${token}: ${entry.lemma} primary metadata is inconsistent`);
     if (entry.forms.some((form) => /\b(?:RON|DJ)\b/.test(form))) fail(`${token}: ${entry.lemma} exposes an imported data fragment`);
   }
 }
@@ -99,13 +108,13 @@ async function auditDataAndRepresentativeRules() {
   for (const word of words.filter((word) => !word.form?.trim() && word.orth)) {
     const entries = await lookupLatinWord(word.orth);
     const expectedPart = word.pos === "CONJ" ? "conjunction" : "interjection";
-    const exactEntry = entries.find((entry) => entry.id.startsWith(`${word.id}-`) &&
+    const exactEntry = entries.find((entry) => entry.sourceIds.includes(word.id) &&
       entry.part === expectedPart && entry.lemma === word.orth && entry.forms.includes("indeclinable"));
     if (!exactEntry) {
       fail(`${word.orth}: missing whole-word ${expectedPart} entry`);
     } else {
-      const expectedSenses = word.senses.map((sense) => sense.replace(/^\|/, "").trim()).filter(Boolean);
-      if (JSON.stringify(exactEntry.senses) !== JSON.stringify(expectedSenses)) {
+      const expectedSenses = word.senses.map((sense) => sense.replace(/^\|+/, "").trim()).filter(Boolean);
+      if (!expectedSenses.every((sense) => exactEntry.senses.includes(sense))) {
         fail(`${word.orth}: whole-word entry does not preserve every source sense`);
       }
     }
@@ -199,7 +208,9 @@ async function auditAgainstLatinWords() {
       if (!normalizedMessage.includes(headword.toLocaleLowerCase())) fail(`${testCase.token}: latin-words.com no longer confirms headword ${headword}`);
     }
     for (const entry of local.filter((item) => item.metadata)) {
-      for (const sense of entry.senses) {
+      const sourceSenses = [...new Set(entry.sourceIds.flatMap((id) => wordsById.get(id)?.senses ?? [])
+        .map((sense) => sense.replace(/^\|+/, "").trim()).filter(Boolean))];
+      for (const sense of sourceSenses) {
         const normalizedSense = sense.replace(/\s+/g, " ").toLocaleLowerCase();
         if (!normalizedMessage.includes(normalizedSense)) {
           fail(`${testCase.token}: latin-words.com output is missing local sense ${JSON.stringify(sense)}`);

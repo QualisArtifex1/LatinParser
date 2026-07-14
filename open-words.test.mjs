@@ -222,10 +222,37 @@ test("entries retain every dictionary sense", async () => {
   ]);
 });
 
+test("continuation records become one entry with every sense and source record", async () => {
+  const entries = await lookup("facio");
+  const facioEntries = entries.filter((entry) => entry.lemma === "facio, facere, feci, factus" && entry.part === "verb");
+  assert.equal(facioEntries.length, 1);
+  assert.deepEqual(facioEntries[0].sourceIds, [20211, 20212, 20213, 20214]);
+  assert.deepEqual(facioEntries[0].metadataVariants.map((metadata) => metadata.code), ["XXXAO"]);
+  assert.deepEqual(facioEntries[0].senses, [
+    "make/build/construct/create/cause/do",
+    "have built/made",
+    "fashion",
+    "work (metal)",
+    "act/take action/be active",
+    "(bowels)",
+    "act/work (things), function, be effective",
+    "produce",
+    "produce by growth",
+    "bring forth (young)",
+    "create, bring into existence",
+    "compose/write",
+    "classify",
+    "provide",
+    "do/perform",
+    "commit crime",
+    "suppose/imagine"
+  ]);
+});
+
 test("the legacy parser pipeline does not cap definitions or forms", () => {
-  const words = Array.from({ length: 7 }, (_, index) => ({
-    id: index + 1,
+  const exactDefinitions = Array.from({ length: 7 }, (_, index) => ({
     orth: "x",
+    lemma: `lemma ${index + 1}`,
     parts: ["x"],
     pos: "CONJ",
     form: "",
@@ -238,11 +265,7 @@ test("the legacy parser pipeline does not cap definitions or forms", () => {
     form: `FORM${index + 1}`,
     senses: ["same sense"]
   }));
-  const metadata = {
-    fields: ["age", "area", "geography", "frequency", "source"],
-    codes: words.map(() => "XXXXX")
-  };
-  const parser = new OpenWordsParser(words, [], [], exactForms, [], {}, metadata);
+  const parser = new OpenWordsParser([], [], [], [...exactDefinitions, ...exactForms], [], {}, { fields: [], codes: [] });
   assert.equal(parser.parse("x").length, 7);
   assert.equal(parser.parseLine("x")[0].defs.length, 7);
   assert.equal(parser.parse("y")[0].forms.length, 9);

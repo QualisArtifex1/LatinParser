@@ -54,7 +54,9 @@ function toggleSavedEntry(entry) {
       part: entry.part,
       meaning: entry.meaning,
       senses: entry.senses,
-      metadata: entry.metadata
+      sourceIds: entry.sourceIds,
+      metadata: entry.metadata,
+      metadataVariants: entry.metadataVariants
     });
   }
   persistSavedEntries();
@@ -138,18 +140,21 @@ function renderDefinitions() {
     main.append(makeElement("h2", "", entry.lemma));
     const classification = makeElement("div", "entry-classification");
     classification.append(makeElement("p", "part-of-speech", entry.part));
-    if (entry.metadata?.code) {
-      const metadata = makeElement("p", "entry-metadata", `[${entry.metadata.code}]`);
-      metadata.title = entry.metadata.fields?.join(", ") ||
-        `age ${entry.metadata.age}; area ${entry.metadata.area}; geography ${entry.metadata.geography}; frequency ${entry.metadata.frequency}; source ${entry.metadata.source}`;
-      classification.append(metadata);
+    const metadataVariants = entry.metadataVariants?.length ? entry.metadataVariants : entry.metadata ? [entry.metadata] : [];
+    if (metadataVariants.length) {
+      const metadataList = makeElement("div", "entry-metadata-list");
+      metadataVariants.forEach((variant) => {
+        const metadata = makeElement("p", "entry-metadata", `[${variant.code}]`);
+        metadata.title = variant.fields?.join(", ") ||
+          `age ${variant.age}; area ${variant.area}; geography ${variant.geography}; frequency ${variant.frequency}; source ${variant.source}`;
+        metadataList.append(metadata);
+      });
+      classification.append(metadataList);
     }
     main.append(classification);
     const senses = entry.senses?.length ? entry.senses : [entry.meaning];
-    const senseList = makeElement("div", "definition-senses");
-    senses.forEach((sense, senseIndex) => {
-      senseList.append(makeElement("p", senseIndex === 0 ? "meaning" : "definition-note", sense));
-    });
+    const senseList = makeElement("ol", "definition-senses");
+    senses.forEach((sense) => senseList.append(makeElement("li", "", sense)));
     main.append(senseList);
     if (entry.note) main.append(makeElement("p", "lookup-note", entry.note));
     card.append(main);
