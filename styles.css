@@ -215,7 +215,9 @@ textarea::placeholder { color: #9b8d79; }
 }
 .definition-index { position: absolute; top: -25px; right: 28px; color: rgba(111, 23, 39, .06); font-family: var(--serif); font-size: 10rem; font-weight: 800; line-height: 1; pointer-events: none; }
 .definition-main, .grammar-panel, .not-found { position: relative; z-index: 1; padding: clamp(28px, 5vw, 55px); }
-.definition-main h2, .not-found h2 { margin-bottom: 4px; color: var(--green-dark); font-size: clamp(2.1rem, 4vw, 3.45rem); line-height: 1; }
+.definition-main h2, .not-found h2 { margin-bottom: 14px; color: var(--green-dark); font-size: clamp(2.1rem, 4vw, 3.45rem); line-height: 1.08; overflow-wrap: anywhere; }
+.entry-headword.degree-headword { display: grid; gap: 2px; font-size: clamp(1.85rem, 3.1vw, 3rem); line-height: 1.12; text-wrap: pretty; }
+.entry-headword.degree-headword span { display: block; }
 .entry-classification { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 13px; }
 .entry-classification p { margin: 0; }
 .part-of-speech { color: var(--wine); font-size: .75rem; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }

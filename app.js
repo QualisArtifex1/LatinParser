@@ -137,7 +137,16 @@ function renderDefinitions() {
 
     const main = makeElement("div", "definition-main");
     main.append(makeElement("span", "eyebrow", `Dictionary entry ${index + 1} of ${token.entries.length}`));
-    main.append(makeElement("h2", "", entry.lemma));
+    const heading = makeElement("h2", "entry-headword");
+    const degreeGroups = entry.lemma.split("; ");
+    if (degreeGroups.length > 1) {
+      heading.classList.add("degree-headword");
+      heading.setAttribute("aria-label", entry.lemma);
+      degreeGroups.forEach((group) => heading.append(makeElement("span", "", group)));
+    } else {
+      heading.textContent = entry.lemma;
+    }
+    main.append(heading);
     const classification = makeElement("div", "entry-classification");
     classification.append(makeElement("p", "part-of-speech", entry.part));
     main.append(classification);
