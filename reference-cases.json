@@ -31,7 +31,7 @@
   { "token": "vos", "required": [{ "lemma": "vos", "partPrefix": "pronoun" }] },
   { "token": "sui", "required": [{ "lemma": "sui", "partPrefix": "pronoun" }] },
   { "token": "puellae", "required": [{ "lemma": "puella, puellae", "partPrefix": "noun" }], "referenceHeadwords": ["puella, puellae"] },
-  { "token": "bonus", "required": [{ "lemma": "bonus, bona, bonum", "partPrefix": "adjective" }] },
+  { "token": "bonus", "required": [{ "lemma": "bonus, bona, bonum; melior, melius; optimus, optima, optimum", "partPrefix": "adjective" }], "referenceHeadwords": ["bonus, bona -um, melior -or -us, optimus -a -um"] },
   { "token": "cano", "required": [{ "lemma": "cano, canere, cecini, cantus", "partPrefix": "verb" }], "referenceHeadwords": ["cano, canere, cecini, cantus"] },
   { "token": "ab", "required": [{ "lemma": "ab", "partPrefix": "preposition", "forms": ["ablative"] }] },
   { "token": "mi", "required": [{ "lemma": "mi", "partPrefix": "adjective", "forms": ["vocative · singular · masculine"] }] },
@@ -40,5 +40,10 @@
   { "token": "lege", "required": [{ "lemma": "lego, legere, legi, lectus", "partPrefix": "verb" }] },
   { "token": "possum", "required": [{ "lemma": "possum, posse, potui", "partPrefix": "verb", "forms": ["present · active · indicative · 1st person · singular"] }], "referenceHeadwords": ["possum, posse, potui"] },
   { "token": "ut", "required": [{ "lemma": "ut", "partPrefix": "conjunction", "forms": ["indeclinable"] }], "referenceHeadwords": ["ut"] },
-  { "token": "facio", "required": [{ "lemma": "facio, facere, feci, factus", "partPrefix": "verb", "forms": ["present · active · indicative · 1st person · singular"] }], "referenceHeadwords": ["facio, facere, feci, factus"] }
+  { "token": "facio", "required": [{ "lemma": "facio, facere, feci, factus", "partPrefix": "verb", "forms": ["present · active · indicative · 1st person · singular"] }], "referenceHeadwords": ["facio, facere, feci, factus"] },
+  { "token": "pulcher", "required": [{ "lemma": "pulcher, pulchra, pulchrum; pulchrior, pulchrius; pulcherrimus, pulcherrima, pulcherrimum", "partPrefix": "adjective" }], "referenceHeadwords": ["pulcher, pulchra -um, pulchrior -or -us, pulcherrimus -a -um"] },
+  { "token": "aeger", "required": [{ "lemma": "aeger, aegra, aegrum; aegrior, aegrius; aegerrimus, aegerrima, aegerrimum", "partPrefix": "adjective" }] },
+  { "token": "melior", "required": [{ "lemma": "bonus, bona, bonum; melior, melius; optimus, optima, optimum", "partPrefix": "adjective", "forms": ["nominative · singular · common gender · comparative"] }], "referenceHeadwords": ["bonus, bona -um, melior -or -us, optimus -a -um"] },
+  { "token": "optimus", "required": [{ "lemma": "bonus, bona, bonum; melior, melius; optimus, optima, optimum", "partPrefix": "adjective", "forms": ["nominative · singular · masculine · superlative"] }], "referenceHeadwords": ["bonus, bona -um, melior -or -us, optimus -a -um"] },
+  { "token": "acerrimus", "required": [{ "lemma": "acer, acris, acre; acrior, acrius; acerrimus, acerrima, acerrimum", "partPrefix": "adjective", "forms": ["nominative · singular · masculine · superlative"] }], "referenceHeadwords": ["acer, acris -e, acrior -or -us, acerrimus -a -um"] }
 ]

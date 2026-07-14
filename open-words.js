@@ -161,14 +161,17 @@ function genderMatches(word, inflection) {
   if (endingGender === "C") return wordGender !== "N";
   return wordGender === endingGender;
 }
-function adjectiveDegreeMatches(word, inflection) {
+function adjectiveStemMatches(word, stem, inflection) {
   if (word.pos !== "ADJ" || inflection.pos !== "ADJ") return true;
   const degree = word.form.trim().split(/\s+/)[2];
   const comparisonFamily = inflection.n?.[0] === 0 && /^3\s/.test(inflection.ending);
   const superlativeFamily = inflection.n?.[0] === 0 && /^4\s/.test(inflection.ending);
   if (degree === "COMP") return comparisonFamily;
   if (degree === "SUPER") return superlativeFamily;
-  return !comparisonFamily && !superlativeFamily;
+  const positions = stemPositions(word, stem);
+  if (comparisonFamily) return positions.includes(2);
+  if (superlativeFamily) return positions.includes(3);
+  return positions.includes(0) || positions.includes(1);
 }
 function formatForm(form, pos) {
   const words = form.trim().split(/\s+/).filter(Boolean);
@@ -179,6 +182,10 @@ function formatForm(form, pos) {
   }).filter((word) => word !== "x" && (pos === "V" || !/^\d+$/.test(word))).join(" \xB7 ");
 }
 function formatInflectionForm(inflection, word) {
+  if (word.pos === "ADJ" && inflection.pos === "ADJ") {
+    const degree = /^3\s/.test(inflection.ending) ? "comparative" : /^4\s/.test(inflection.ending) ? "superlative" : "";
+    return [formatForm(inflection.form, inflection.pos), degree].filter(Boolean).join(" \xB7 ");
+  }
   if (word.pos !== "N" || inflection.pos !== "N") return formatForm(inflection.form, inflection.pos);
   const tokens = inflection.form.trim().split(/\s+/);
   const wordGender = word.form.trim().split(/\s+/)[2];
@@ -286,19 +293,26 @@ function formatLemma(word, inflections) {
       participlePart
     ].filter(Boolean).join(", ");
   }
-  if (word.pos === "ADJ" && declension === 1) {
-    const first = parts[0] ?? word.orth;
-    return `${first}us, ${first}a, ${first}um`;
-  }
-  if (word.pos === "ADJ" && declension === 3) {
-    const [nominative = word.orth, oblique = "", comparative = "", superlative = ""] = rawParts;
-    const positive = word.n?.[1] === 2 ? `${nominative}is, ${oblique || nominative}e` : nominative;
-    return [
-      positive,
-      word.n?.[1] === 1 && oblique ? `${oblique}is` : "",
-      comparative ? `${comparative}or` : "",
-      superlative ? `${superlative}mus` : ""
-    ].filter(Boolean).join(", ");
+  if (word.pos === "ADJ") {
+    const [first = word.orth, second = first, comparative = "", superlative = ""] = rawParts;
+    const degree = word.form.trim().split(/\s+/)[2];
+    if (degree === "COMP") return `${first}or, ${first}us`;
+    if (degree === "SUPER") return `${first}mus, ${first}ma, ${first}mum`;
+    let positive = "";
+    if (declension === 1) {
+      positive = word.n?.[1] === 2 ? `${first}, ${second}a, ${second}um` : `${first}us, ${second}a, ${second}um`;
+    } else if (declension === 3) {
+      if (word.n?.[1] === 1) positive = `${first}, ${second}is`;
+      if (word.n?.[1] === 2) positive = `${first}is, ${second}e`;
+      if (word.n?.[1] === 3) positive = `${first}, ${second}is, ${second}e`;
+    }
+    if (positive) {
+      return [
+        positive,
+        comparative ? `${comparative}or, ${comparative}us` : "",
+        superlative ? `${superlative}mus, ${superlative}ma, ${superlative}mum` : ""
+      ].filter(Boolean).join("; ");
+    }
   }
   return parts.join(", ") || word.orth;
 }
@@ -448,7 +462,7 @@ class OpenWordsParser {
       for (const stem of possibleStems) {
         if (!sameInflectionFamily(stem, inflection)) continue;
         const word = this.wordsById.get(stem.wid);
-        if (!word || !genderMatches(word, inflection) || !adjectiveDegreeMatches(word, inflection) ||
+        if (!word || !genderMatches(word, inflection) || !adjectiveStemMatches(word, stem, inflection) ||
           !verbStemMatches(word, stem, inflection) || !pronounStemMatches(word, stem, inflection) ||
           !nounStemMatches(word, stem, inflection)) continue;
         const isIdemEntry = word.pos === "PRON" && sameNumberPair(word.n, [4, 2]);

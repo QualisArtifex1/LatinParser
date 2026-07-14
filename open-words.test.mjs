@@ -35,7 +35,7 @@ test("present and gerundive participles use the present stem", async () => {
   assert.equal(amans.length, 3);
   assert.equal(amans[0].lemma, "amo, amare, amavi, amatus");
   assert.equal(amans[0].part, "participle");
-  assert.equal(amans[1].lemma, "amans, amantis, amantior, amantissimus");
+  assert.equal(amans[1].lemma, "amans, amantis; amantior, amantius; amantissimus, amantissima, amantissimum");
   assert.equal(amans[2].lemma, "amans, amantis");
 
   const amandus = await lookup("amandus");
@@ -139,6 +139,39 @@ test("exact adjective records are normalized from the fixed-width import", async
   assert.equal(adjective.part, "adjective");
   assert.equal(adjective.lemma, "mi");
   assert.deepEqual(adjective.forms, ["vocative · singular · masculine"]);
+});
+
+test("adjective headwords preserve irregular positives and every degree", async () => {
+  const bonus = (await lookup("bonus")).find((entry) => entry.part === "adjective");
+  const pulcher = (await lookup("pulcher")).find((entry) => entry.part === "adjective");
+  const aeger = (await lookup("aeger")).find((entry) => entry.part === "adjective");
+  const acer = (await lookup("acer")).find((entry) => entry.part === "adjective");
+  assert.equal(bonus.lemma, "bonus, bona, bonum; melior, melius; optimus, optima, optimum");
+  assert.equal(pulcher.lemma, "pulcher, pulchra, pulchrum; pulchrior, pulchrius; pulcherrimus, pulcherrima, pulcherrimum");
+  assert.equal(aeger.lemma, "aeger, aegra, aegrum; aegrior, aegrius; aegerrimus, aegerrima, aegerrimum");
+  assert.equal(acer.lemma, "acer, acris, acre; acrior, acrius; acerrimus, acerrima, acerrimum");
+});
+
+test("comparatives and superlatives resolve to their base dictionary entries", async () => {
+  const bonusLemma = "bonus, bona, bonum; melior, melius; optimus, optima, optimum";
+  const pulcherLemma = "pulcher, pulchra, pulchrum; pulchrior, pulchrius; pulcherrimus, pulcherrima, pulcherrimum";
+  const melior = (await lookup("melior")).find((entry) => entry.lemma === bonusLemma);
+  const melius = (await lookup("melius")).find((entry) => entry.lemma === bonusLemma);
+  const optimus = (await lookup("optimus")).find((entry) => entry.lemma === bonusLemma);
+  assert.deepEqual(melior.forms.sort(), [
+    "nominative · singular · common gender · comparative",
+    "vocative · singular · common gender · comparative"
+  ]);
+  assert.deepEqual(melius.forms.sort(), [
+    "accusative · singular · neuter · comparative",
+    "nominative · singular · neuter · comparative",
+    "vocative · singular · neuter · comparative"
+  ]);
+  assert.ok(optimus.forms.includes("nominative · singular · masculine · superlative"));
+  for (const token of ["pulchrior", "pulchrius", "pulcherrimus"]) {
+    assert.ok((await lookup(token)).some((entry) => entry.lemma === pulcherLemma), `${token} should resolve to pulcher`);
+  }
+  assert.ok((await lookup("amantior")).some((entry) => entry.lemma.startsWith("amans, amantis; amantior, amantius")));
 });
 
 test("pronoun stems are used only with their matching inflection families", async () => {

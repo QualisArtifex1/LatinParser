@@ -124,6 +124,23 @@ async function auditDataAndRepresentativeRules() {
   for (const stem of stems) stemsByPos.set(stem.pos, [...stemsByPos.get(stem.pos) ?? [], stem]);
   const probes = new Set(cases.map((testCase) => normalize(testCase.token)));
   for (const word of uniques) probes.add(normalize(word.orth));
+  let adjectiveDegreeProbes = 0;
+  for (const word of words.filter((word) => word.pos === "ADJ" && word.form.trim().split(/\s+/)[2] === "X")) {
+    for (const [position, ending, degree] of [[2, "or", "comparative"], [3, "mus", "superlative"]]) {
+      const stem = word.parts?.[position];
+      if (!stem) continue;
+      const token = normalize(`${stem}${ending}`);
+      const entry = (await lookupLatinWord(token)).find((candidate) => candidate.sourceIds.includes(word.id));
+      if (!entry) {
+        fail(`${token}: does not resolve to adjective source record ${word.id}`);
+      } else {
+        if (!entry.forms.some((form) => form.endsWith(degree))) fail(`${token}: is not labeled ${degree}`);
+        if (!entry.lemma.includes(`${stem}${ending}`)) fail(`${token}: ${entry.lemma} omits its ${degree} headword`);
+      }
+      probes.add(token);
+      adjectiveDegreeProbes += 1;
+    }
+  }
   let exercisedRules = 0;
   for (const inflection of inflections) {
     const possible = [
@@ -139,12 +156,12 @@ async function auditDataAndRepresentativeRules() {
   }
 
   for (const token of probes) validateEntries(token, await lookupLatinWord(token));
-  return { probes: probes.size, exercisedRules };
+  return { probes: probes.size, exercisedRules, adjectiveDegreeProbes };
 }
 
 const partCodes = ["VPAR", "PRON", "INTERJ", "SUPINE", "PREP", "CONJ", "ADJ", "ADV", "NUM", "N", "V"];
 const morphologyStarts = new Set(["NOM", "VOC", "GEN", "DAT", "ACC", "ABL", "LOC", "PRES", "IMPF", "PERF", "FUT", "FUTP", "PLUP", "POS", "COMP", "SUPER"]);
-const morphologyLengths = { N: 3, PRON: 3, ADJ: 3, NUM: 3, V: 5, VPAR: 6, ADV: 1, PREP: 1, SUPINE: 3 };
+const morphologyLengths = { N: 3, PRON: 3, ADJ: 4, NUM: 3, V: 5, VPAR: 6, ADV: 1, PREP: 1, SUPINE: 3 };
 
 function referenceForms(message) {
   const signatures = new Set();
@@ -159,7 +176,11 @@ function referenceForms(message) {
     if (!match) continue;
     const tokens = match[2].trim().replace(/^\d+\s+\d+\s+/, "").split(/\s+/);
     if (!morphologyStarts.has(tokens[0]) || !morphologyLengths[match[1]]) continue;
-    signatures.add(`${match[1]}|${tokens.slice(0, morphologyLengths[match[1]]).filter((token) => token !== "X").join(" ")}`);
+    const formTokens = tokens.slice(0, morphologyLengths[match[1]]).filter((token) => token !== "X");
+    signatures.add(`${match[1]}|${formTokens.join(" ")}`);
+    if (match[1] === "ADJ" && formTokens.at(-1) === "POS") {
+      signatures.add(`ADJ|${formTokens.slice(0, -1).join(" ")}`);
+    }
   }
   return signatures;
 }
@@ -233,5 +254,5 @@ if (errors.length) {
   for (const error of errors) console.error(`- ${error}`);
   process.exitCode = 1;
 } else {
-  console.log(`Dictionary audit passed: ${cases.length} curated cases, ${coverage.probes} structural probes, ${coverage.exercisedRules}/${inflections.length} inflection rules exercised${process.argv.includes("--live") ? ", live latin-words.com comparison included" : ""}.`);
+  console.log(`Dictionary audit passed: ${cases.length} curated cases, ${coverage.probes} structural probes, ${coverage.adjectiveDegreeProbes} adjective degree links, ${coverage.exercisedRules}/${inflections.length} inflection rules exercised${process.argv.includes("--live") ? ", live latin-words.com comparison included" : ""}.`);
 }
