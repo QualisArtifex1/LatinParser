@@ -151,6 +151,7 @@ async function auditDataAndRepresentativeRules() {
   }
 
   let regularSecondDeclensionHeadwords = 0;
+  let regularSecondDeclensionVocatives = 0;
   for (const word of words.filter((word) => {
     const first = word.parts?.[0] ?? "";
     const gender = word.form.trim().split(/\s+/)[2];
@@ -164,7 +165,15 @@ async function auditDataAndRepresentativeRules() {
       candidate.sourceIds.includes(word.id) && candidate.forms.includes(`nominative · singular · ${gender}`)
     );
     if (!entry) fail(`${token}: regular second-declension source record ${word.id} is not available in the nominative singular`);
+    const vocativeToken = `${word.parts[0]}e`;
+    const vocativeEntry = (await lookupLatinWord(vocativeToken)).find((candidate) =>
+      candidate.sourceIds.includes(word.id) && candidate.forms.includes(`vocative · singular · ${gender}`)
+    );
+    if (!vocativeEntry) {
+      fail(`${vocativeToken}: regular second-declension source record ${word.id} is not available in the vocative singular`);
+    }
     regularSecondDeclensionHeadwords += 1;
+    regularSecondDeclensionVocatives += 1;
   }
 
   const stemsByPos = new Map();
@@ -203,7 +212,13 @@ async function auditDataAndRepresentativeRules() {
   }
 
   for (const token of probes) validateEntries(token, await lookupLatinWord(token));
-  return { probes: probes.size, exercisedRules, adjectiveDegreeProbes, regularSecondDeclensionHeadwords };
+  return {
+    probes: probes.size,
+    exercisedRules,
+    adjectiveDegreeProbes,
+    regularSecondDeclensionHeadwords,
+    regularSecondDeclensionVocatives
+  };
 }
 
 const partCodes = ["VPAR", "PRON", "INTERJ", "SUPINE", "PREP", "CONJ", "ADJ", "ADV", "NUM", "N", "V"];
@@ -277,14 +292,18 @@ async function auditAgainstLatinWords() {
     checked += 1;
     const reference = referenceForms(payload.message);
     const local = await lookupLatinWord(testCase.token);
+    const allowedReferenceFormOmissions = new Set(testCase.allowedReferenceFormOmissions ?? []);
     for (const signature of new Set(local.flatMap((entry) => entry.forms.map((form) => localSignature(entry, form))))) {
-      if (!referenceContainsLocal(signature, reference)) fail(`${testCase.token}: local form ${signature} is absent from latin-words.com`);
+      if (!referenceContainsLocal(signature, reference) && !allowedReferenceFormOmissions.has(signature)) {
+        fail(`${testCase.token}: local form ${signature} is absent from latin-words.com`);
+      }
     }
     const normalizedMessage = payload.message.replace(/\s+/g, " ").toLocaleLowerCase();
     for (const headword of testCase.referenceHeadwords ?? []) {
       if (!normalizedMessage.includes(headword.toLocaleLowerCase())) fail(`${testCase.token}: latin-words.com no longer confirms headword ${headword}`);
     }
     for (const entry of local.filter((item) => item.metadata)) {
+      if (testCase.skipReferenceSourceDetailsFor?.includes(entry.lemma)) continue;
       const sourceSenses = [...new Set(entry.sourceIds.flatMap((id) => wordsById.get(id)?.senses ?? [])
         .map((sense) => sense.replace(/^\|+/, "").trim()).filter(Boolean))];
       for (const sense of sourceSenses) {
@@ -312,5 +331,5 @@ if (errors.length) {
   process.exitCode = 1;
 } else {
   const liveSummary = liveCoverage ? `, ${liveCoverage.checked} live latin-words.com comparisons${liveCoverage.skipped ? ` (${liveCoverage.skipped} empty reference responses skipped)` : ""}` : "";
-  console.log(`Dictionary audit passed: ${cases.length} curated cases, ${coverage.probes} structural probes, ${coverage.adjectiveDegreeProbes} adjective degree links, ${coverage.regularSecondDeclensionHeadwords} regular -us noun headwords, ${coverage.exercisedRules}/${inflections.length} inflection rules exercised${liveSummary}.`);
+  console.log(`Dictionary audit passed: ${cases.length} curated cases, ${coverage.probes} structural probes, ${coverage.adjectiveDegreeProbes} adjective degree links, ${coverage.regularSecondDeclensionHeadwords} regular -us noun headwords, ${coverage.regularSecondDeclensionVocatives} matching vocatives, ${coverage.exercisedRules}/${inflections.length} inflection rules exercised${liveSummary}.`);
 }

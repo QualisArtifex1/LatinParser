@@ -133,16 +133,15 @@ test("pronoun families display citation forms instead of internal stems", async 
 
 test("exact pronoun records are normalized and their forms are combined", async () => {
   const entries = await lookup("eadem");
-  assert.equal(entries.length, 1);
-  assert.ok(entries.every((entry) => entry.part === "pronoun"));
-  assert.ok(entries.every((entry) => entry.lemma === "idem, eadem, idem"));
-  const exact = entries.find((entry) => entry.meaning.startsWith("same"));
+  const exact = entries.find((entry) => entry.part === "pronoun" && entry.lemma === "idem, eadem, idem");
   assert.ok(exact);
   assert.deepEqual(exact.forms.sort(), [
+    "ablative · singular · feminine",
     "accusative · plural · neuter",
     "nominative · plural · neuter",
     "nominative · singular · feminine"
   ]);
+  assert.ok(entries.some((entry) => entry.part === "adverb" && entry.lemma === "eadem"));
 });
 
 test("exact adjective records are normalized from the fixed-width import", async () => {
@@ -215,6 +214,25 @@ test("regular second-declension -us nouns resolve in the nominative singular", a
     assert.ok(entry, `${token} should resolve to ${lemma}`);
     assert.ok(entry.forms.includes("nominative · singular · masculine"));
   }
+});
+
+test("whole-word inflections take precedence over lookalike enclitics", async () => {
+  const cases = [
+    ["domine", "dominus, domini"],
+    ["serve", "servus, servi"],
+    ["eque", "equus, equi"],
+    ["horte", "hortus, horti"]
+  ];
+  for (const [token, lemma] of cases) {
+    const entries = await lookup(token);
+    const entry = entries.find((candidate) => candidate.lemma === lemma);
+    assert.ok(entry, `${token} should retain its direct analysis as ${lemma}`);
+    assert.ok(entry.forms.includes("vocative · singular · masculine"));
+    assert.equal(entries[0].lemma, lemma, `${token}'s direct analysis should rank first`);
+  }
+  assert.ok((await lookup("domine")).some((entry) => entry.note?.startsWith("-ne")));
+  assert.ok((await lookup("utque")).some((entry) => entry.lemma === "ut" && entry.note?.startsWith("-que")));
+  assert.ok((await lookup("idemque")).some((entry) => entry.lemma === "idem, eadem, idem" && entry.note?.startsWith("-que")));
 });
 
 test("short third-conjugation imperatives are limited to genuine irregulars", async () => {

@@ -1,7 +1,7 @@
 const DATA_ROOT = "./open-words";
 // Keep browser caches from pairing a newly deployed parser with stale data.
 // Bump this whenever the bundled dictionary engine or its data contract changes.
-const ENGINE_ASSET_VERSION = "2026-08-12-1";
+const ENGINE_ASSET_VERSION = "2026-08-12-2";
 const PARTS = {
   N: "noun",
   V: "verb",
@@ -429,72 +429,99 @@ class OpenWordsParser {
   lookupBaseWord(rawToken) {
     const token = normalize(rawToken);
     if (!token) return [];
-    const exact = this.exactByOrth.get(token);
-    const exactEntries = (exact ?? []).map((word) =>
-      toEntry(word, [word.form.trim() ? formatForm(word.form, word.pos) : "indeclinable"], "", this.inflections, this.entryMetadata)
-    );
-    let lookupToken = token;
-    let suffixNote = "";
-    let idemTackon = false;
+    const analyses = [];
+    const analysisKeys = /* @__PURE__ */ new Set();
+    const addAnalysis = (lookupToken, suffixNote = "", idemTackon = false, direct = false) => {
+      const key = [lookupToken, suffixNote, idemTackon].join("|");
+      if (analysisKeys.has(key)) return;
+      analysisKeys.add(key);
+      analyses.push({ key, lookupToken, suffixNote, idemTackon, direct });
+    };
+    addAnalysis(token, "", false, true);
     const dem = this.addons.not_packons?.find((addon) => normalize(addon.orth) === "dem");
-    if (dem && lookupToken.length > 3 && lookupToken.endsWith("dem")) {
-      const possibleBase = lookupToken.slice(0, -3);
+    const addIdemAnalysis = (sourceToken, suffixNote = "") => {
+      const demSuffix = normalize(dem?.orth ?? "");
+      if (!demSuffix || sourceToken.length <= demSuffix.length || !sourceToken.endsWith(demSuffix)) return;
+      const possibleBase = sourceToken.slice(0, -demSuffix.length);
       if (this.hasPossibleStem(possibleBase)) {
-        lookupToken = possibleBase;
-        idemTackon = true;
+        addAnalysis(possibleBase, suffixNote, true);
       }
-    }
+    };
+    addIdemAnalysis(token);
     for (const addon of this.addons.tackons ?? []) {
       const suffix = normalize(addon.orth);
-      if (lookupToken.length > suffix.length + 1 && lookupToken.endsWith(suffix)) {
-        const possibleBase = lookupToken.slice(0, -suffix.length);
+      if (token.length > suffix.length + 1 && token.endsWith(suffix)) {
+        const possibleBase = token.slice(0, -suffix.length);
         if (this.hasPossibleStem(possibleBase)) {
-          lookupToken = possibleBase;
-          suffixNote = addon.senses[0]?.replace(/;.*/, "") ?? `with -${addon.orth}`;
-          break;
+          const suffixNote = addon.senses[0]?.replace(/;.*/, "") ?? `with -${addon.orth}`;
+          addAnalysis(possibleBase, suffixNote);
+          addIdemAnalysis(possibleBase, suffixNote);
         }
       }
     }
+    const exactEntries = [];
     const candidates = /* @__PURE__ */ new Map();
-    const exactPronounFamilies = new Set((exact ?? []).filter((word) => word.pos === "PRON").map((word) => word.n?.join(".")));
-    for (const inflection of this.inflections) {
-      const ending = normalize(inflection.ending);
-      if (!lookupToken.endsWith(ending)) continue;
-      const stemText = ending ? lookupToken.slice(0, -ending.length) : lookupToken;
-      const possibleStems = this.stemsByOrth.get(stemText) ?? [];
-      for (const stem of possibleStems) {
-        if (!sameInflectionFamily(stem, inflection)) continue;
-        const word = this.wordsById.get(stem.wid);
-        if (!word || !genderMatches(word, inflection) || !adjectiveStemMatches(word, stem, inflection) ||
-          !verbStemMatches(word, stem, inflection) || !pronounStemMatches(word, stem, inflection) ||
-          !nounStemMatches(word, stem, inflection)) continue;
-        const isIdemEntry = word.pos === "PRON" && sameNumberPair(word.n, [4, 2]);
-        if (isIdemEntry !== idemTackon) continue;
-        if (word.pos === "PRON" && exactPronounFamilies.has(word.n?.join("."))) continue;
-        const current = candidates.get(stem.wid) ?? { word, forms: /* @__PURE__ */ new Set(), score: 0 };
-        current.forms.add(formatInflectionForm(inflection, word));
-        const exactVariant = stem.n?.[1] === inflection.n?.[1] && inflection.n?.[1] !== 0;
-        const firstPersonVerb = word.pos === "V" && /IND\s+1\s+S/.test(inflection.form);
-        const directPartMatch = stem.pos === inflection.pos;
-        current.score = Math.max(
-          current.score,
-          ending.length * 5 + (directPartMatch ? 4 : 0) + (exactVariant ? 3 : 0) + (firstPersonVerb ? 2 : 0)
-        );
-        candidates.set(stem.wid, current);
+    for (const analysis of analyses) {
+      const exact = this.exactByOrth.get(analysis.lookupToken) ?? [];
+      for (const word of exact) {
+        exactEntries.push({
+          entry: toEntry(
+            word,
+            [word.form.trim() ? formatForm(word.form, word.pos) : "indeclinable"],
+            analysis.suffixNote,
+            this.inflections,
+            this.entryMetadata
+          ),
+          score: analysis.direct ? Number.POSITIVE_INFINITY : 500
+        });
+      }
+      const exactPronounFamilies = new Set(exact.filter((word) => word.pos === "PRON").map((word) => word.n?.join(".")));
+      for (const inflection of this.inflections) {
+        const ending = normalize(inflection.ending);
+        if (!analysis.lookupToken.endsWith(ending)) continue;
+        const stemText = ending ? analysis.lookupToken.slice(0, -ending.length) : analysis.lookupToken;
+        const possibleStems = this.stemsByOrth.get(stemText) ?? [];
+        for (const stem of possibleStems) {
+          if (!sameInflectionFamily(stem, inflection)) continue;
+          const word = this.wordsById.get(stem.wid);
+          if (!word || !genderMatches(word, inflection) || !adjectiveStemMatches(word, stem, inflection) ||
+            !verbStemMatches(word, stem, inflection) || !pronounStemMatches(word, stem, inflection) ||
+            !nounStemMatches(word, stem, inflection)) continue;
+          const isIdemEntry = word.pos === "PRON" && sameNumberPair(word.n, [4, 2]);
+          if (isIdemEntry !== analysis.idemTackon) continue;
+          if (word.pos === "PRON" && exactPronounFamilies.has(word.n?.join("."))) continue;
+          const candidateKey = `${analysis.key}|${stem.wid}`;
+          const current = candidates.get(candidateKey) ?? {
+            word,
+            forms: /* @__PURE__ */ new Set(),
+            suffixNote: analysis.suffixNote,
+            score: 0
+          };
+          current.forms.add(formatInflectionForm(inflection, word));
+          const exactVariant = stem.n?.[1] === inflection.n?.[1] && inflection.n?.[1] !== 0;
+          const firstPersonVerb = word.pos === "V" && /IND\s+1\s+S/.test(inflection.form);
+          const directPartMatch = stem.pos === inflection.pos;
+          current.score = Math.max(
+            current.score,
+            (analysis.direct ? 1e3 : 0) + ending.length * 5 + (directPartMatch ? 4 : 0) +
+              (exactVariant ? 3 : 0) + (firstPersonVerb ? 2 : 0)
+          );
+          candidates.set(candidateKey, current);
+        }
       }
     }
     const deduped = /* @__PURE__ */ new Map();
-    for (const entry of exactEntries) {
+    for (const { entry, score } of exactEntries) {
       const key = entryKey(entry);
       const existing = deduped.get(key);
       if (existing) {
-        mergeEntries(existing, entry, Number.POSITIVE_INFINITY);
+        mergeEntries(existing, entry, score);
       } else {
-        deduped.set(key, { ...entry, score: Number.POSITIVE_INFINITY });
+        deduped.set(key, { ...entry, score });
       }
     }
     for (const candidate of candidates.values()) {
-      const entry = toEntry(candidate.word, [...candidate.forms], suffixNote, this.inflections, this.entryMetadata);
+      const entry = toEntry(candidate.word, [...candidate.forms], candidate.suffixNote, this.inflections, this.entryMetadata);
       const key = entryKey(entry);
       const existing = deduped.get(key);
       if (existing) {

@@ -25,8 +25,8 @@ node scripts/build-entry-metadata.mjs /path/to/DICTLINE.GEN
 Dictionary logic is checked at three levels:
 
 1. `node --test open-words.test.mjs` runs focused regressions for previously discovered parsing bugs.
-2. `node dictionary-audit.mjs` validates the imported data against the bundled source-rule manifest, verifies every regular second-declension `-us` noun headword, exercises representative surface forms from the inflection rules, and checks a curated cross-part-of-speech corpus.
-3. `node dictionary-audit.mjs --live` additionally compares every locally displayed morphological form, sense, and metadata code in the explicitly reference-confirmed subset with the current output from [latin-words.com](https://latin-words.com/). Empty successful responses from the external service are reported and skipped rather than treated as contradictory dictionary evidence.
+2. `node dictionary-audit.mjs` validates the imported data against the bundled source-rule manifest, verifies every regular second-declension `-us` noun headword and matching vocative, exercises representative surface forms from the inflection rules, and checks a curated cross-part-of-speech corpus.
+3. `node dictionary-audit.mjs --live` additionally compares every locally displayed morphological form, sense, and metadata code in the explicitly reference-confirmed subset with the current output from [latin-words.com](https://latin-words.com/). Empty successful responses from the external service are reported and skipped rather than treated as contradictory dictionary evidence. Explicit `allowedReferenceFormOmissions` and `skipReferenceSourceDetailsFor` fields document cases where the external site omits a grammatically valid bundled analysis or its source details.
 
 The offline checks run automatically on every push and pull request through GitHub Actions. From the repository's **Actions → Dictionary audit → Run workflow** screen, enable **Compare the curated corpus with latin-words.com** to run the live differential check.
 
