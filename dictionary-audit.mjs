@@ -7,7 +7,7 @@ const nativeFetch = globalThis.fetch.bind(globalThis);
 const readJson = async (name) => JSON.parse(await fs.readFile(path.join(root, name), "utf8"));
 
 globalThis.fetch = async (url) => {
-  const localPath = String(url).replace("./open-words/", "open-words/");
+  const localPath = String(url).split("?", 1)[0].replace("./open-words/", "open-words/");
   try {
     return { ok: true, json: async () => readJson(localPath) };
   } catch {

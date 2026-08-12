@@ -10,6 +10,8 @@ The app is the canonical dictionary build for three self-contained GitHub Pages 
 
 Run `node scripts/sync-dictionary-consumers.mjs` after a verified change to copy the same app, parser, and local data into the two consuming repositories.
 
+The browser entry points and dictionary data URLs share `ENGINE_ASSET_VERSION` from `open-words.js`. Bump that value whenever a parser or bundled-data change must invalidate GitHub Pages and browser caches, then run the synchronization script.
+
 ## Data fidelity
 
 Every dictionary sense is returned and rendered. Physical continuation records that share a headword and part of speech are presented as one lexical entry, with their senses shown as a numbered list. Results and grammatical forms are not truncated. `open-words/entry-metadata.json` preserves the five fixed-width Whitaker metadata fields—age, area, geography, frequency, and source—for every imported dictionary record. Regenerate that file from the original data with:

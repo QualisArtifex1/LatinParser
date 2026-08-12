@@ -1,4 +1,4 @@
-import { lookupLatinWord } from "./open-words.js";
+import { lookupLatinWord } from "./open-words.js?v=2026-08-12-1";
 
 const SAMPLE = "Gallia est omnis divisa in partes tres.";
 const STORAGE_KEY = "latin-dictionary-study-list";

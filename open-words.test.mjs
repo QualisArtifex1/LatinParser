@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 
 globalThis.fetch = async (url) => {
-  const path = String(url).replace("./open-words/", "open-words/");
+  const path = String(url).split("?", 1)[0].replace("./open-words/", "open-words/");
   try {
     return { ok: true, json: async () => JSON.parse(await fs.readFile(path, "utf8")) };
   } catch {
@@ -15,6 +15,19 @@ globalThis.fetch = async (url) => {
 const { OpenWordsParser, lookupLatinWord } = await import(pathToFileURL(`${process.cwd()}/open-words.js`));
 const lookup = (word) => lookupLatinWord(word);
 const hasMeaning = (entries, text) => entries.some((entry) => entry.meaning.includes(text));
+
+test("browser entry points use the same cache-busting engine version", async () => {
+  const [indexHtml, appSource, engineSource] = await Promise.all([
+    fs.readFile("index.html", "utf8"),
+    fs.readFile("app.js", "utf8"),
+    fs.readFile("open-words.js", "utf8")
+  ]);
+  const version = engineSource.match(/ENGINE_ASSET_VERSION = "([^"]+)"/)?.[1];
+  assert.ok(version, "open-words.js must declare an engine asset version");
+  assert.match(indexHtml, new RegExp(`app\\.js\\?v=${version}`));
+  assert.match(appSource, new RegExp(`open-words\\.js\\?v=${version}`));
+  assert.match(engineSource, /\.json\?v=\$\{ENGINE_ASSET_VERSION\}/);
+});
 
 test("venit keeps only its genuine unmacronized ambiguities", async () => {
   const entries = await lookup("venit");

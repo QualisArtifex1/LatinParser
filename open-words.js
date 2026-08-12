@@ -1,4 +1,7 @@
 const DATA_ROOT = "./open-words";
+// Keep browser caches from pairing a newly deployed parser with stale data.
+// Bump this whenever the bundled dictionary engine or its data contract changes.
+const ENGINE_ASSET_VERSION = "2026-08-12-1";
 const PARTS = {
   N: "noun",
   V: "verb",
@@ -512,7 +515,7 @@ class OpenWordsParser {
 }
 let enginePromise = null;
 async function fetchData(name) {
-  const response = await fetch(`${DATA_ROOT}/${name}.json`);
+  const response = await fetch(`${DATA_ROOT}/${name}.json?v=${ENGINE_ASSET_VERSION}`);
   if (!response.ok) throw new Error(`Could not load ${name}`);
   return response.json();
 }
