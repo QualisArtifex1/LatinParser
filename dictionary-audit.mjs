@@ -17,10 +17,12 @@ globalThis.fetch = async (url) => {
 
 const { lookupLatinWord } = await import(pathToFileURL(path.join(root, "open-words.js")));
 const cases = await readJson("reference-cases.json");
-const [sourceWords, wordCorrections, stems, inflections, uniques, entryMetadata] = await Promise.all(
-  ["words", "word-corrections", "stems", "inflects", "uniques", "entry-metadata"].map((name) => readJson(`open-words/${name}.json`))
+const [sourceWords, wordCorrections, stems, importedInflections, inflectionCorrections, uniques, entryMetadata, inflectionSourceManifest] = await Promise.all(
+  ["words", "word-corrections", "stems", "inflects", "inflection-corrections", "uniques", "entry-metadata", "inflection-source-manifest"]
+    .map((name) => readJson(`open-words/${name}.json`))
 );
 const words = [...sourceWords, ...wordCorrections];
+const inflections = [...importedInflections, ...inflectionCorrections];
 const wordsById = new Map(words.map((word) => [word.id, word]));
 const errors = [];
 const fail = (message) => errors.push(message);
@@ -30,6 +32,16 @@ const normalize = (value) => value.toLocaleLowerCase().normalize("NFD")
 function requiredEntryMatches(entry, required) {
   return entry.lemma === required.lemma && entry.part.startsWith(required.partPrefix) &&
     (required.forms ?? []).every((form) => entry.forms.includes(form));
+}
+
+function inflectionKey(inflection) {
+  return [
+    inflection.pos,
+    ...(inflection.n ?? []),
+    inflection.form.replace(/\s+/g, " ").trim(),
+    inflection.ending,
+    inflection.note ?? ""
+  ].join("|");
 }
 
 function validateEntries(token, entries) {
@@ -105,6 +117,24 @@ async function auditDataAndRepresentativeRules() {
   for (const stem of stems) {
     if (!ids.has(stem.wid)) fail(`stem ${stem.orth} refers to missing dictionary id ${stem.wid}`);
   }
+  const inflectionKeys = new Set(inflections.map(inflectionKey));
+  const importedInflectionKeys = new Set(importedInflections.map(inflectionKey));
+  const correctionKeys = inflectionCorrections.map(inflectionKey);
+  if (new Set(correctionKeys).size !== correctionKeys.length) fail("inflection corrections contain duplicate rules");
+  for (const correctionKey of correctionKeys) {
+    if (importedInflectionKeys.has(correctionKey)) fail(`inflection correction duplicates an imported rule: ${correctionKey}`);
+  }
+  for (const [part, expectedCount] of Object.entries(inflectionSourceManifest.ruleCounts)) {
+    const actualCount = inflections.filter((inflection) => inflection.pos === part).length;
+    if (actualCount !== expectedCount) {
+      fail(`${inflectionSourceManifest.source} defines ${expectedCount} ${part} rules, but the imported data contains ${actualCount}`);
+    }
+  }
+  for (const requiredRule of inflectionSourceManifest.requiredRules) {
+    if (!inflectionKeys.has(inflectionKey(requiredRule))) {
+      fail(`missing ${inflectionSourceManifest.source} line ${requiredRule.sourceLine}: ${inflectionKey(requiredRule)}`);
+    }
+  }
   for (const word of words.filter((word) => !word.form?.trim() && word.orth)) {
     const entries = await lookupLatinWord(word.orth);
     const expectedPart = word.pos === "CONJ" ? "conjunction" : "interjection";
@@ -118,6 +148,23 @@ async function auditDataAndRepresentativeRules() {
         fail(`${word.orth}: whole-word entry does not preserve every source sense`);
       }
     }
+  }
+
+  let regularSecondDeclensionHeadwords = 0;
+  for (const word of words.filter((word) => {
+    const first = word.parts?.[0] ?? "";
+    const gender = word.form.trim().split(/\s+/)[2];
+    return word.pos === "N" && word.n?.[0] === 2 && word.n?.[1] === 1 &&
+      Boolean(first) && gender !== "N" && first !== "vir" && !/er$/i.test(first);
+  })) {
+    const token = `${word.parts[0]}us`;
+    const genderCode = word.form.trim().split(/\s+/)[2];
+    const gender = { M: "masculine", F: "feminine", C: "common gender" }[genderCode];
+    const entry = (await lookupLatinWord(token)).find((candidate) =>
+      candidate.sourceIds.includes(word.id) && candidate.forms.includes(`nominative · singular · ${gender}`)
+    );
+    if (!entry) fail(`${token}: regular second-declension source record ${word.id} is not available in the nominative singular`);
+    regularSecondDeclensionHeadwords += 1;
   }
 
   const stemsByPos = new Map();
@@ -156,7 +203,7 @@ async function auditDataAndRepresentativeRules() {
   }
 
   for (const token of probes) validateEntries(token, await lookupLatinWord(token));
-  return { probes: probes.size, exercisedRules, adjectiveDegreeProbes };
+  return { probes: probes.size, exercisedRules, adjectiveDegreeProbes, regularSecondDeclensionHeadwords };
 }
 
 const partCodes = ["VPAR", "PRON", "INTERJ", "SUPINE", "PREP", "CONJ", "ADJ", "ADV", "NUM", "N", "V"];
@@ -208,8 +255,11 @@ function referenceContainsLocal(signature, reference) {
 }
 
 async function auditAgainstLatinWords() {
-  for (const testCase of cases) {
-    const response = await nativeFetch(`https://latin-words.com/cgi-bin/translate.cgi?query=${encodeURIComponent(testCase.token)}`);
+  let checked = 0;
+  let skipped = 0;
+  for (const testCase of cases.filter((candidate) => candidate.referenceHeadwords?.length)) {
+    const url = `https://latin-words.com/cgi-bin/translate.cgi?query=${encodeURIComponent(testCase.token)}`;
+    const response = await nativeFetch(url);
     if (!response.ok) {
       fail(`${testCase.token}: latin-words.com returned HTTP ${response.status}`);
       continue;
@@ -219,6 +269,12 @@ async function auditAgainstLatinWords() {
       fail(`${testCase.token}: latin-words.com lookup failed: ${payload.message}`);
       continue;
     }
+    if (!payload.message.trim()) {
+      console.warn(`Live reference skipped ${testCase.token}: latin-words.com returned an empty successful response.`);
+      skipped += 1;
+      continue;
+    }
+    checked += 1;
     const reference = referenceForms(payload.message);
     const local = await lookupLatinWord(testCase.token);
     for (const signature of new Set(local.flatMap((entry) => entry.forms.map((form) => localSignature(entry, form))))) {
@@ -243,16 +299,18 @@ async function auditAgainstLatinWords() {
     }
     await new Promise((resolve) => setTimeout(resolve, 75));
   }
+  return { checked, skipped };
 }
 
 await auditCuratedCases();
 const coverage = await auditDataAndRepresentativeRules();
-if (process.argv.includes("--live")) await auditAgainstLatinWords();
+const liveCoverage = process.argv.includes("--live") ? await auditAgainstLatinWords() : undefined;
 
 if (errors.length) {
   console.error(`Dictionary audit failed with ${errors.length} issue(s):`);
   for (const error of errors) console.error(`- ${error}`);
   process.exitCode = 1;
 } else {
-  console.log(`Dictionary audit passed: ${cases.length} curated cases, ${coverage.probes} structural probes, ${coverage.adjectiveDegreeProbes} adjective degree links, ${coverage.exercisedRules}/${inflections.length} inflection rules exercised${process.argv.includes("--live") ? ", live latin-words.com comparison included" : ""}.`);
+  const liveSummary = liveCoverage ? `, ${liveCoverage.checked} live latin-words.com comparisons${liveCoverage.skipped ? ` (${liveCoverage.skipped} empty reference responses skipped)` : ""}` : "";
+  console.log(`Dictionary audit passed: ${cases.length} curated cases, ${coverage.probes} structural probes, ${coverage.adjectiveDegreeProbes} adjective degree links, ${coverage.regularSecondDeclensionHeadwords} regular -us noun headwords, ${coverage.exercisedRules}/${inflections.length} inflection rules exercised${liveSummary}.`);
 }

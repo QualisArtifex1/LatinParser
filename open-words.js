@@ -523,13 +523,22 @@ function getEngine() {
       fetchData("word-corrections"),
       fetchData("stems"),
       fetchData("inflects"),
+      fetchData("inflection-corrections"),
       fetchData("uniques"),
       fetchData("custom-words"),
       fetchData("addons"),
       fetchData("entry-metadata")
     ]).then(
-      ([words, wordCorrections, stems, inflections, uniques, customWords, addons, entryMetadata]) =>
-        new OpenWordsParser([...words, ...wordCorrections], stems, inflections, uniques, customWords, addons, entryMetadata)
+      ([words, wordCorrections, stems, inflections, inflectionCorrections, uniques, customWords, addons, entryMetadata]) =>
+        new OpenWordsParser(
+          [...words, ...wordCorrections],
+          stems,
+          [...inflections, ...inflectionCorrections],
+          uniques,
+          customWords,
+          addons,
+          entryMetadata
+        )
     );
   }
   return enginePromise;

@@ -189,6 +189,21 @@ test("noun forms use the dictionary entry's gender", async () => {
   assert.ok(amansNoun.forms.every((form) => form.endsWith("common gender")));
 });
 
+test("regular second-declension -us nouns resolve in the nominative singular", async () => {
+  const cases = [
+    ["dominus", "dominus, domini", "owner, lord, master"],
+    ["servus", "servus, servi", "slave"],
+    ["equus", "equus, equi", "horse"],
+    ["hortus", "hortus, horti", "garden"],
+    ["discipulus", "discipulus, discipuli", "student, pupil"]
+  ];
+  for (const [token, lemma, meaning] of cases) {
+    const entry = (await lookup(token)).find((candidate) => candidate.lemma === lemma && candidate.meaning.includes(meaning));
+    assert.ok(entry, `${token} should resolve to ${lemma}`);
+    assert.ok(entry.forms.includes("nominative · singular · masculine"));
+  }
+});
+
 test("short third-conjugation imperatives are limited to genuine irregulars", async () => {
   assert.equal((await lookup("leg")).some((entry) => entry.part === "verb"), false);
   assert.ok((await lookup("lege")).some((entry) => entry.lemma === "lego, legere, legi, lectus"));
